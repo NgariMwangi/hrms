@@ -1,0 +1,48 @@
+{% extends "layouts/base.html" %}
+{% block title %}Statutory - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Statutory Configuration</h1>
+<p><a href="{{ url_for('statutory.rate_add') }}" class="btn btn-primary">Add Rate (SHIF %, Housing %, etc.)</a>
+   <a href="{{ url_for('statutory.paye_add') }}" class="btn btn-outline-primary">Add PAYE Bracket</a></p>
+<h5>Rates</h5>
+<div class="table-responsive">
+    <table class="table table-hover"><thead><tr><th>Code</th><th>Effective From</th><th>To</th><th>Value</th><th class="text-end">Actions</th></tr></thead>
+    <tbody>
+    {% for r in rates %}
+    <tr>
+        <td>{{ r.code }}</td><td>{{ r.effective_from }}</td><td>{{ r.effective_to or '-' }}</td><td>{{ r.value }}</td>
+        <td class="text-end">
+            <a href="{{ url_for('statutory.rate_edit', id=r.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+            <form method="post" action="{{ url_for('statutory.rate_delete', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this rate?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+            </form>
+        </td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="text-muted">No rates.</td></tr>{% endfor %}
+    </tbody></table>
+</div>
+<h5>PAYE Brackets</h5>
+<div class="table-responsive">
+    <table class="table table-hover"><thead><tr><th>From</th><th>To</th><th>Order</th><th>Min</th><th>Max</th><th>Rate %</th><th class="text-end">Actions</th></tr></thead>
+    <tbody>
+    {% for b in brackets %}
+    <tr>
+        <td>{{ b.effective_from }}</td><td>{{ b.effective_to or '-' }}</td><td>{{ b.bracket_order }}</td><td>{{ b.min_amount }}</td><td>{{ b.max_amount or '-' }}</td><td>{{ b.rate_percent }}</td>
+        <td class="text-end">
+            <a href="{{ url_for('statutory.paye_edit', id=b.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+            <form method="post" action="{{ url_for('statutory.paye_delete', id=b.id) }}" class="d-inline" onsubmit="return confirm('Delete this PAYE bracket?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+            </form>
+        </td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="text-muted">No brackets.</td></tr>{% endfor %}
+    </tbody></table>
+</div>
+<h5>NSSF Tiers</h5>
+<div class="table-responsive">
+    <table class="table"><thead><tr><th>From</th><th>Tier</th><th>Pensionable Min</th><th>Max</th><th>Emp %</th><th>Empr %</th></tr></thead>
+    <tbody>{% for t in tiers %}<tr><td>{{ t.effective_from }}</td><td>{{ t.tier_number }}</td><td>{{ t.pensionable_min }}</td><td>{{ t.pensionable_max }}</td><td>{{ t.employee_percent }}</td><td>{{ t.employer_percent }}</td></tr>{% else %}<tr><td colspan="6" class="text-muted">No tiers.</td></tr>{% endfor %}</tbody></table>
+</div>
+{% endblock %}

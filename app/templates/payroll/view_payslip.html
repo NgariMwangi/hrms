@@ -1,0 +1,48 @@
+{% extends "layouts/base.html" %}
+{% block title %}Payslip - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-1">NET PAY CALCULATOR</h1>
+<p class="text-muted mb-3">{{ period_date.strftime('%B %Y') }}</p>
+<div class="card mb-3">
+    <div class="card-body">
+        <table class="table table-sm mb-0">
+            <tbody>
+                <tr><th>Gross Pay</th><td class="text-end">{{ "{:,.2f}".format(item.gross_pay|float) }}</td></tr>
+                <tr><th colspan="2">Deductions:</th></tr>
+                <tr><td class="ps-3">PAYE</td><td class="text-end">{{ "{:,.2f}".format(item.paye|float) }}</td></tr>
+                <tr><td class="ps-3">NSSF (Tier I)</td><td class="text-end">{{ "{:,.2f}".format(nssf_tier_1|float) }}</td></tr>
+                <tr><td class="ps-3">NSSF (Tier II)</td><td class="text-end">{{ "{:,.2f}".format(nssf_tier_2|float) }}</td></tr>
+                <tr><td class="ps-3">SHIF</td><td class="text-end">{{ "{:,.2f}".format(item.shif|float) }}</td></tr>
+                <tr><td class="ps-3">Housing Levy</td><td class="text-end">{{ "{:,.2f}".format(item.housing_levy|float) }}</td></tr>
+                {% for od in other_deduction_lines %}
+                <tr><td class="ps-3">{{ od.name }}</td><td class="text-end">{{ "{:,.2f}".format(od.amount|float) }}</td></tr>
+                {% endfor %}
+                <tr class="table-light"><th>Total Deductions</th><td class="text-end">{{ "{:,.2f}".format((item.paye + item.nssf_employee + item.shif + item.housing_levy + item.other_deductions)|float) }}</td></tr>
+                <tr class="table-success"><th>Net Pay</th><td class="text-end fw-bold">{{ "{:,.2f}".format(item.net_pay|float) }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="card">
+    <div class="card-body">
+        <h2 class="h6">PAYE Information:</h2>
+        <table class="table table-sm mb-0">
+            <tbody>
+                <tr><th>Gross Pay</th><td class="text-end">{{ "{:,.2f}".format(item.gross_pay|float) }}</td></tr>
+                <tr><th>Allowable Deductions</th><td class="text-end">{{ "{:,.2f}".format(allowable_deductions|float) }}</td></tr>
+                <tr><th>Taxable Pay</th><td class="text-end">{{ "{:,.2f}".format(item.taxable_pay|float) }}</td></tr>
+                <tr><th>Personal Relief</th><td class="text-end">{{ "{:,.2f}".format(personal_relief|float) }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="mt-2">
+    {% if has_permission('view_payroll') %}
+    <a href="{{ url_for('payroll.view_run', id=item.payroll_run_id) }}" class="btn btn-outline-secondary">Back to payroll run</a>
+    {% elif current_user.employee_id == item.employee_id %}
+    <a href="{{ url_for('payroll.my_payslips') }}" class="btn btn-outline-secondary">Back to my payslips</a>
+    {% else %}
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary">Back</a>
+    {% endif %}
+</div>
+{% endblock %}

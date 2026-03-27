@@ -1,0 +1,61 @@
+{% extends "layouts/base.html" %}
+{% block title %}{{ employee.full_name }} - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">{{ employee.employee_number }} - {{ employee.full_name }}</h1>
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">Personal</div>
+            <div class="card-body">
+                <p class="mb-1"><strong>DOB:</strong> {{ employee.date_of_birth.strftime('%d %b %Y') if employee.date_of_birth else '-' }}</p>
+                <p class="mb-1"><strong>Gender:</strong> {{ employee.gender or '-' }}</p>
+                <p class="mb-1"><strong>National ID:</strong> {{ employee.national_id or '-' }}</p>
+                <p class="mb-1"><strong>KRA PIN:</strong> {{ employee.kra_pin or '-' }}</p>
+                <p class="mb-1"><strong>NSSF No:</strong> {{ employee.nssf_number or '-' }}</p>
+                <p class="mb-1"><strong>NHIF/SHIF:</strong> {{ employee.nhif_number or '-' }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card mb-3">
+            <div class="card-header">Employment</div>
+            <div class="card-body">
+                <p class="mb-1"><strong>Department:</strong> {{ employee.department.name if employee.department else '-' }}</p>
+                <p class="mb-1"><strong>Job Title:</strong> {{ employee.job_title.name if employee.job_title else '-' }}</p>
+                <p class="mb-1"><strong>Manager:</strong> {{ employee.manager.full_name if employee.manager else '-' }}</p>
+                <p class="mb-1"><strong>Status:</strong> <span class="badge bg-{{ 'success' if employee.status == 'active' else 'secondary' }}">{{ employee.status }}</span></p>
+                <p class="mb-1"><strong>Hire Date:</strong> {{ employee.hire_date.strftime('%d %b %Y') if employee.hire_date else '-' }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card mb-3">
+    <div class="card-header">Contact</div>
+    <div class="card-body">
+        <p class="mb-1"><strong>Email:</strong> {{ employee.email or '-' }}</p>
+        <p class="mb-1"><strong>Phone:</strong> {{ employee.phone or '-' }}</p>
+        <p class="mb-1"><strong>Address:</strong> {{ employee.address or '-' }}</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">Next steps</div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">After creating an employee you can: fix details, set salary, link a login account, and upload documents.</p>
+        <div class="d-flex flex-wrap gap-2">
+            {% if has_permission('edit_employees') %}
+            <a href="{{ url_for('employees.edit', id=employee.id) }}" class="btn btn-primary"><i class="bi bi-pencil me-1"></i>Edit details</a>
+            {% endif %}
+            <a href="{{ url_for('employees.salary', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-cash-stack me-1"></i>Salary</a>
+            <a href="{{ url_for('employees.employee_deductions', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-dash-circle me-1"></i>Deductions</a>
+            {% if not employee.user %}
+            <a href="{{ url_for('employees.link_user', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-person-badge me-1"></i>Link login account</a>
+            {% else %}
+            <span class="btn btn-outline-secondary disabled"><i class="bi bi-person-check me-1"></i>Account linked</span>
+            {% endif %}
+            <a href="{{ url_for('employees.documents', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-file-earmark me-1"></i>Documents</a>
+            <a href="{{ url_for('employees.list') }}" class="btn btn-outline-secondary">Back to list</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

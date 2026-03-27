@@ -1,0 +1,63 @@
+{% extends "layouts/base.html" %}
+{% block title %}Dashboard - {{ app_name }}{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <h1 class="h3 mb-1">Dashboard</h1>
+    <p class="text-muted small mb-0">Overview and quick links</p>
+</div>
+<div class="row g-4">
+    <div class="col-sm-6 col-xl-4">
+        <div class="card stat-card stat-primary h-100 border-0">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:0.06em;">Active employees</span>
+                    <span class="stat-icon"><i class="bi bi-people"></i></span>
+                </div>
+                <p class="stat-value mb-0">{{ total_employees }}</p>
+            </div>
+        </div>
+    </div>
+    {% if pending_leave is defined and pending_leave > 0 %}
+    <div class="col-sm-6 col-xl-4">
+        <div class="card stat-card stat-warning h-100 border-0">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:0.06em;">Pending leave</span>
+                    <span class="stat-icon"><i class="bi bi-calendar-check"></i></span>
+                </div>
+                <p class="stat-value mb-3">{{ pending_leave }}</p>
+                <a href="{{ url_for('leave.index') }}" class="btn btn-sm btn-outline-primary align-self-start rounded-3">Review</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if latest_payroll and has_permission('view_payroll') %}
+    <div class="col-sm-6 col-xl-4">
+        <div class="card stat-card stat-success h-100 border-0">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:0.06em;">Latest payroll</span>
+                    <span class="stat-icon"><i class="bi bi-cash-stack"></i></span>
+                </div>
+                <p class="mb-2 fw-semibold text-dark">{{ latest_payroll.pay_month }}/{{ latest_payroll.pay_year }} <span class="badge bg-secondary bg-opacity-75">{{ latest_payroll.status }}</span></p>
+                <a href="{{ url_for('payroll.view_run', id=latest_payroll.id) }}" class="btn btn-sm btn-outline-primary align-self-start rounded-3">Open run</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if current_user.employee_id %}
+    <div class="col-sm-6 col-xl-4">
+        <div class="card stat-card stat-primary h-100 border-0">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:0.06em;">My payslips</span>
+                    <span class="stat-icon"><i class="bi bi-receipt-cutoff"></i></span>
+                </div>
+                <p class="text-muted small mb-3">Approved payroll payslips</p>
+                <a href="{{ url_for('payroll.my_payslips') }}" class="btn btn-sm btn-primary align-self-start rounded-3">View payslips</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

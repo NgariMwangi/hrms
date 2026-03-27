@@ -1,0 +1,30 @@
+{% extends "layouts/base.html" %}
+{% block title %}Calculate Payroll - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Calculate Payroll: {{ run.pay_month }}/{{ run.pay_year }}</h1>
+<div class="card mb-3">
+    <div class="card-body">
+        <p class="mb-1"><strong>Active employees:</strong> {{ employees|length }}</p>
+        <p class="mb-0"><strong>Eligible for payroll (salary set for this period):</strong> {{ eligible_count }}</p>
+    </div>
+</div>
+<form method="post" action="{{ url_for('payroll.run_calculate', id=run.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <input type="hidden" name="action" value="calculate"/>
+    <button type="submit" class="btn btn-primary">Calculate Payroll</button>
+</form>
+{% if missing_salary %}
+<div class="card mt-3">
+    <div class="card-header">Employees missing salary setup</div>
+    <div class="card-body">
+        <p class="text-muted small mb-2">These active employees will be skipped until you add salary for the run period.</p>
+        <ul class="mb-0">
+            {% for e in missing_salary %}
+            <li>{{ e.employee_number }} - {{ e.full_name }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+<p class="mt-2"><a href="{{ url_for('payroll.view_run', id=run.id) }}">View run</a></p>
+{% endblock %}

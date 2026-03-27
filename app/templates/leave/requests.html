@@ -1,0 +1,87 @@
+{% extends "layouts/base.html" %}
+{% block title %}Leave - {{ app_name }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h1 class="h3 mb-0">Leave Requests</h1>
+    {% if has_permission('manage_leave_types') %}
+    <a href="{{ url_for('leave.types_index') }}" class="btn btn-outline-secondary btn-sm">Configure leave types</a>
+    {% endif %}
+</div>
+
+{% if leave_statistics %}
+<div class="card mb-4 border-0 shadow-sm">
+    <div class="card-body">
+        <h2 class="h6 text-uppercase text-muted mb-3">Your leave summary ({{ stats_year }})</h2>
+        <p class="text-muted small mb-3 mb-md-2">
+            Leave types are filtered by the gender on your employee profile (e.g. maternity hidden for male, paternity hidden for female). <strong>Used</strong> = approved days in {{ stats_year }} (requests overlapping this year). <strong>Remaining</strong> = yearly entitlement minus used, when the leave type has a cap.
+        </p>
+        <div class="row g-3">
+            {% for row in leave_statistics %}
+            <div class="col-sm-6 col-lg-4 col-xl-3">
+                <div class="border rounded p-3 h-100 bg-light bg-opacity-50">
+                    <div class="fw-semibold mb-2">{{ row.name }}</div>
+                    <dl class="row small mb-0">
+                        {% if row.entitlement is not none %}
+                        <dt class="col-6 text-muted">Entitlement</dt>
+                        <dd class="col-6 text-end mb-1">{{ row.entitlement | fmt_days }} <span class="text-muted">days</span></dd>
+                        {% endif %}
+                        <dt class="col-6 text-muted">Used</dt>
+                        <dd class="col-6 text-end mb-1">{{ row.used | fmt_days }} <span class="text-muted">days</span></dd>
+                        <dt class="col-6 text-muted">Remaining</dt>
+                        <dd class="col-6 text-end mb-0 fw-semibold text-primary">
+                            {% if row.remaining is not none %}
+                                {{ row.remaining | fmt_days }} <span class="text-muted fw-normal">days</span>
+                            {% else %}
+                                <span class="text-muted fw-normal">—</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% elif not current_user.employee_id %}
+<div class="alert alert-light border mb-4 small">
+    Link your login to an <strong>employee</strong> record to see personal leave statistics here.
+</div>
+{% endif %}
+
+<a href="{{ url_for('leave.request_leave') }}" class="btn btn-primary mb-3">New Request</a>
+<div class="table-responsive">
+    <table class="table">
+        <thead><tr><th>Employee</th><th>Type</th><th>Start</th><th>End</th><th class="text-center">Days</th><th class="text-center">Remaining</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for r in requests %}
+        <tr>
+            <td>{{ r.employee.full_name if r.employee else '-' }}</td>
+            <td>{{ r.leave_type.name if r.leave_type else '-' }}</td>
+            <td>{{ r.start_date.strftime('%d %b %Y') if r.start_date else '-' }}</td>
+            <td>{{ r.end_date.strftime('%d %b %Y') if r.end_date else '-' }}</td>
+            <td class="text-center">{{ r.days_requested | fmt_days }}</td>
+            <td class="text-center align-middle">
+                {% if r.status == 'approved' and remaining_days.get(r.id) is not none %}
+                    {% set rem = remaining_days[r.id] %}
+                    {% if rem == 0 %}
+                        <span class="text-muted">0</span>
+                    {% else %}
+                        <span class="fw-semibold">{{ rem | fmt_days }}</span>
+                    {% endif %}
+                {% else %}
+                    <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+            <td><span class="badge bg-{{ 'warning' if r.status == 'pending' else 'success' if r.status == 'approved' else 'danger' }}">{{ r.status }}</span></td>
+            <td>{% if r.status == 'pending' and has_permission('approve_leave') %}<a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Approve/Reject</a>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-muted">No leave requests.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p class="text-muted small mb-0">
+    <strong>Remaining</strong> is for <strong>approved</strong> leave only: days still to run in the period (from today through the end date), using the same rule as the leave type — <em>working days</em> (Mon–Fri) or <em>calendar days</em>. Before the start date, it shows the full period length. After the end date, it shows 0.
+</p>
+{% endblock %}

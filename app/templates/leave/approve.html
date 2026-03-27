@@ -1,0 +1,13 @@
+{% extends "layouts/base.html" %}
+{% block title %}Approve Leave - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Leave Request: {{ request.employee.full_name if request.employee else '-' }}</h1>
+<p>{{ request.leave_type.name }} from {{ request.start_date.strftime('%d %b %Y') }} to {{ request.end_date.strftime('%d %b %Y') }} ({{ request.days_requested | fmt_days }} days).</p>
+{% if request.reason %}<p><strong>Reason:</strong> {{ request.reason }}</p>{% endif %}
+<form method="post" action="{{ url_for('leave.approve', id=request.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <div class="mb-3">{{ form.action.label(class='form-label') }}{{ form.action(class='form-select') }}</div>
+    <div class="mb-3">{{ form.review_notes.label(class='form-label') }}{{ form.review_notes(class='form-control') }}</div>
+    <button type="submit" class="btn btn-primary">Submit</button>
+</form>
+{% endblock %}

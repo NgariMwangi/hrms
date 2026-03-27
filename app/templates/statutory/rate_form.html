@@ -1,0 +1,15 @@
+{% extends "layouts/base.html" %}
+{% block title %}{{ 'Edit' if rate else 'Add' }} Rate - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">{{ 'Edit' if rate else 'Add' }} Statutory Rate</h1>
+<form method="post" action="{{ url_for('statutory.rate_edit', id=rate.id) if rate else url_for('statutory.rate_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <div class="mb-3">{{ form.code.label(class='form-label') }}{{ form.code(class='form-control') }}</div>
+    <div class="mb-3">{{ form.effective_from.label(class='form-label') }}{{ form.effective_from(class='form-control') }}</div>
+    <div class="mb-3">{{ form.effective_to.label(class='form-label') }}{{ form.effective_to(class='form-control') }}</div>
+    <div class="mb-3">{{ form.value.label(class='form-label') }}{{ form.value(class='form-control') }}</div>
+    <div class="mb-3">{{ form.description.label(class='form-label') }}{{ form.description(class='form-control') }}</div>
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a href="{{ url_for('statutory.index') }}" class="btn btn-outline-secondary">Cancel</a>
+</form>
+{% endblock %}

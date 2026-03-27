@@ -1,0 +1,56 @@
+{% extends "layouts/base.html" %}
+{% block title %}Payroll {{ run.pay_month }}/{{ run.pay_year }} - {{ app_name }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Payroll {{ run.pay_month }}/{{ run.pay_year }} - {{ run.status }}</h1>
+<div class="d-flex flex-wrap gap-2 mb-3">
+    {% if run.status == 'draft' %}
+    <a href="{{ url_for('payroll.run_calculate', id=run.id) }}" class="btn btn-primary">Calculate Payroll</a>
+    {% endif %}
+    {% if run.status == 'draft' and has_permission('process_payroll') %}
+    <a href="{{ url_for('payroll.run_manual_deductions', id=run.id) }}" class="btn btn-outline-secondary">Manual deductions</a>
+    {% endif %}
+    {% if run.status == 'draft' and has_permission('approve_payroll') %}
+    <form method="post" action="{{ url_for('payroll.approve_run', id=run.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-success">Approve Payroll</button>
+    </form>
+    {% endif %}
+    {% if run.status == 'draft' and has_permission('process_payroll') %}
+    <form method="post" action="{{ url_for('payroll.delete_run', id=run.id) }}" class="d-inline" onsubmit="return confirm('Delete this payroll run? All calculated items will be removed.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-outline-danger">Delete Payroll</button>
+    </form>
+    {% endif %}
+    {% if run.status == 'approved' and has_permission('view_payroll') %}
+    <a href="{{ url_for('payroll.view_statutory_remitances', id=run.id) }}" class="btn btn-outline-primary">Statutory remittances</a>
+    {% endif %}
+    <a href="{{ url_for('payroll.index') }}" class="btn btn-outline-secondary">Back to list</a>
+</div>
+{% if run.status == 'draft' and not items %}
+<div class="alert alert-warning">
+    This payroll run has no calculated items yet. Click <strong>Calculate Payroll</strong> first, then return to this page.
+</div>
+{% endif %}
+<div class="table-responsive">
+    <table class="table">
+        <thead><tr><th>Employee</th><th>Gross</th><th>PAYE</th><th>NSSF</th><th>SHIF</th><th>Housing</th><th>Other ded.</th><th>Net</th><th></th></tr></thead>
+        <tbody>
+        {% for item in items %}
+        <tr>
+            <td>{{ item.employee.full_name if item.employee else '-' }}</td>
+            <td>{{ "%.2f"|format(item.gross_pay|float) }}</td>
+            <td>{{ "%.2f"|format(item.paye|float) }}</td>
+            <td>{{ "%.2f"|format(item.nssf_employee|float) }}</td>
+            <td>{{ "%.2f"|format(item.shif|float) }}</td>
+            <td>{{ "%.2f"|format(item.housing_levy|float) }}</td>
+            <td>{{ "%.2f"|format(item.other_deductions|float) }}</td>
+            <td>{{ "%.2f"|format(item.net_pay|float) }}</td>
+            <td><a href="{{ url_for('payroll.view_payslip', run_id=run.id, employee_id=item.employee_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-muted">No items. Run calculation first.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "layouts/base.html" %}
+{% block title %}Employees - {{ app_name }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+    <h1 class="h4 mb-0 fw-600 text-dark">Employees</h1>
+    {% if has_permission('create_employees') %}
+    <a href="{{ url_for('employees.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add Employee</a>
+    {% endif %}
+</div>
+<div class="card">
+    <div class="card-body">
+        <form class="row g-2 mb-4" method="get">
+            <div class="col-auto flex-grow-1">
+                <input name="q" class="form-control" placeholder="Search by name or number..." value="{{ request.args.get('q', '') }}">
+            </div>
+            <div class="col-auto">
+                <select name="department_id" class="form-select" style="width:auto;min-width:180px">
+                    <option value="">All departments</option>
+                    {% for d in departments %}
+                    <option value="{{ d.id }}" {% if request.args.get('department_id')|int == d.id %}selected{% endif %}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <select name="status" class="form-select" style="width:auto;min-width:140px">
+                    <option value="">All statuses</option>
+                    <option value="active" {% if request.args.get('status') == 'active' %}selected{% endif %}>Active</option>
+                    <option value="terminated" {% if request.args.get('status') == 'terminated' %}selected{% endif %}>Terminated</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-outline-primary"><i class="bi bi-search me-1"></i>Search</button>
+            </div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead><tr><th>Number</th><th>Name</th><th>Department</th><th>Status</th><th>Hire Date</th><th class="text-end">Actions</th></tr></thead>
+                <tbody>
+                {% for e in employees %}
+                <tr>
+                    <td><span class="fw-medium">{{ e.employee_number }}</span></td>
+                    <td>{{ e.full_name }}</td>
+                    <td>{{ e.department.name if e.department else '—' }}</td>
+                    <td><span class="badge bg-{{ 'success' if e.status == 'active' else 'secondary' }}">{{ e.status }}</span></td>
+                    <td>{{ e.hire_date.strftime('%d %b %Y') if e.hire_date else '—' }}</td>
+                    <td class="text-end"><a href="{{ url_for('employees.view', id=e.id) }}" class="btn btn-sm btn-outline-primary">View</a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-muted py-4 text-center">No employees found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

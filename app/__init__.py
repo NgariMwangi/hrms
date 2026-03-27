@@ -24,6 +24,21 @@ from config import get_config
 load_dotenv()
 
 
+def _ensure_writable_dir(path_value: str, fallback_name: str) -> tuple[Path, bool]:
+    """
+    Ensure directory exists and is writable.
+    Returns (resolved_path, used_fallback).
+    """
+    target = Path(path_value)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        return target, False
+    except PermissionError:
+        fallback = Path('/tmp/hrms') / fallback_name
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback, True
+
+
 def create_app(config_object=None):
     """Create and configure the Flask application."""
     app = Flask(
@@ -37,11 +52,19 @@ def create_app(config_object=None):
     config = config_object or get_config()
     app.config.from_object(config)
 
-    # Ensure instance and upload dirs exist
-    Path(app.instance_path).mkdir(parents=True, exist_ok=True)
-    Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
+    # Ensure instance and storage dirs exist; fallback to /tmp/hrms/* when container FS is read-only.
+    instance_dir, instance_fallback = _ensure_writable_dir(app.instance_path, 'instance')
+    if instance_fallback:
+        app.instance_path = str(instance_dir)
+
+    upload_dir, upload_fallback = _ensure_writable_dir(app.config['UPLOAD_FOLDER'], 'uploads')
+    if upload_fallback:
+        app.config['UPLOAD_FOLDER'] = str(upload_dir)
+
     if not app.config.get('TESTING'):
-        Path(app.config['LOG_DIR']).mkdir(parents=True, exist_ok=True)
+        log_dir, log_fallback = _ensure_writable_dir(app.config['LOG_DIR'], 'logs')
+        if log_fallback:
+            app.config['LOG_DIR'] = str(log_dir)
 
     # Initialize extensions
     _init_extensions(app)

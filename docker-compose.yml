@@ -5,7 +5,7 @@ services:
     environment:
       FLASK_ENV: development
       SECRET_KEY: jtyjxdnjncdkm
-      DATABASE_URL: postgresql://postgres:deno0707@37.60.242.201:5432/sales_management
+      DATABASE_URL: postgresql://postgres:deno0707@37.60.242.201:5432/hrms_kenya
     ports:
       - "5001:5001"
     # Optional: mount app/static to provide logo.jpg without rebuilding

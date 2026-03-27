@@ -15,7 +15,7 @@ class Config:
 
     # Database
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'postgresql://postgres:deno0707@localhost:5432/hrms_kenya'
+        'postgresql://postgres:deno0707@37.60.242.201:5432/hrms_kenya'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_pre_ping': True,

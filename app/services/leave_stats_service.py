@@ -11,6 +11,7 @@ from sqlalchemy import func
 from app.extensions import db
 from app.models.employee import Employee
 from app.models.leave import LeaveRequest, LeaveType
+from app.services.leave_balance_service import compute_balance_snapshot, leave_type_uses_balance_ledger
 
 
 def normalize_gender(raw) -> str | None:
@@ -81,6 +82,31 @@ def statistics_for_employee(employee_id: int, year: int | None = None) -> list[d
     rows = []
     for lt in types_q:
         used = _used_days_approved_in_year(employee_id, lt.id, year)
+        if leave_type_uses_balance_ledger(lt):
+            snap = compute_balance_snapshot(employee_id, lt.id, year)
+            if snap:
+                total_book = snap["opening_balance"] + snap["accrued"] + snap["adjusted"]
+                remaining = max(Decimal("0"), snap["closing_balance"])
+                cap = lt.carry_forward_max
+                carry_max = int(cap) if cap is not None else 0
+                rows.append(
+                    {
+                        "leave_type_id": lt.id,
+                        "code": lt.code,
+                        "name": lt.name,
+                        "mode": "ledger",
+                        "entitlement": total_book.quantize(Decimal("0.01")),
+                        "opening_balance": snap["opening_balance"],
+                        "accrued": snap["accrued"],
+                        "adjusted": snap["adjusted"],
+                        "used": used,
+                        "remaining": remaining,
+                        "carry_forward_max": carry_max,
+                        "days_per_year_cap": lt.days_per_year,
+                    }
+                )
+                continue
+
         ent = lt.days_per_year
         if ent is not None:
             entitlement = Decimal(str(ent)).quantize(Decimal("0.01"))
@@ -96,6 +122,7 @@ def statistics_for_employee(employee_id: int, year: int | None = None) -> list[d
                 "leave_type_id": lt.id,
                 "code": lt.code,
                 "name": lt.name,
+                "mode": "simple",
                 "entitlement": entitlement,
                 "used": used,
                 "remaining": remaining,

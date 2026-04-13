@@ -25,7 +25,7 @@ from app.models.user import Role, Permission, RolePermission
 from app.models.statutory import StatutoryRate, PayeBracket, NssfTier
 from app.models.department import Department
 from app.models.job_title import JobTitle
-from app.models.leave import LeaveType
+from app.models.leave import LeaveType, PublicHoliday
 from app.models.document import DocumentCategory
 from app.models.payroll import Allowance
 
@@ -168,7 +168,7 @@ def run():
         # Leave types (aligned with current DB)
         leave_specs = [
             # code, name, days_per_year, accrues_monthly, days_per_month, is_paid, days_count_basis
-            ('ANNUAL', 'Annual Leave', Decimal('21'), True, Decimal('1.75'), True, 'working'),
+            ('ANNUAL', 'Annual Leave', Decimal('24'), True, Decimal('2'), True, 'working'),
             ('SICK', 'Sick Leave', Decimal('14'), False, None, True, 'working'),
             ('MATERNITY', 'Maternity Leave', Decimal('90'), False, None, True, 'calendar'),
             ('PATERNITY', 'Paternity Leave', Decimal('14'), False, None, True, 'calendar'),
@@ -189,8 +189,70 @@ def run():
                         days_count_basis=basis,
                         is_paid=is_paid,
                         min_days_request=Decimal('0.5'),
-                        carry_forward_max=0,
+                        carry_forward_max=10,
                         is_active=True,
+                    )
+                )
+        db.session.commit()
+
+        # Kenya public holidays:
+        # - fixed-date holidays as recurring rows
+        # - moveable religious / Easter holidays as one-off rows (sample year)
+        # HR can edit these under Leave -> Public holidays.
+        for month, day, hol_name in [
+            (1, 1, "New Year's Day"),
+            (5, 1, 'Labour Day'),
+            (6, 1, 'Madaraka Day'),
+            (10, 10, 'Huduma Day'),
+            (10, 20, 'Mashujaa Day'),
+            (12, 12, 'Jamhuri Day'),
+            (12, 25, 'Christmas Day'),
+            (12, 26, 'Boxing Day'),
+        ]:
+            exists = (
+                db.session.query(PublicHoliday)
+                .filter(
+                    PublicHoliday.kind == 'recurring',
+                    PublicHoliday.recurring_month == month,
+                    PublicHoliday.recurring_day == day,
+                )
+                .first()
+            )
+            if exists is None:
+                db.session.add(
+                    PublicHoliday(
+                        kind='recurring',
+                        name=hol_name,
+                        recurring_month=month,
+                        recurring_day=day,
+                        date=None,
+                    )
+                )
+        db.session.commit()
+
+        # One-off / moveable Kenya holidays (2026 sample dates)
+        for hol_date, hol_name in [
+            (date(2026, 4, 3), 'Good Friday'),
+            (date(2026, 4, 6), 'Easter Monday'),
+            (date(2026, 3, 20), 'Eid al-Fitr'),
+            (date(2026, 5, 27), 'Eid al-Adha'),
+        ]:
+            exists = (
+                db.session.query(PublicHoliday)
+                .filter(
+                    PublicHoliday.kind == 'one_off',
+                    PublicHoliday.date == hol_date,
+                )
+                .first()
+            )
+            if exists is None:
+                db.session.add(
+                    PublicHoliday(
+                        kind='one_off',
+                        name=hol_name,
+                        date=hol_date,
+                        recurring_month=None,
+                        recurring_day=None,
                     )
                 )
         db.session.commit()
@@ -250,5 +312,6 @@ def run():
 
         print(
             'Seed completed: permissions, roles, statutory rates, PAYE/NSSF, leave types, '
-            'departments, job titles, allowances, document categories.'
+            'public holidays (recurring + one-off), departments, job titles, allowances, '
+            'document categories.'
         )

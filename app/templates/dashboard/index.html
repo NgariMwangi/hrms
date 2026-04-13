@@ -59,5 +59,56 @@
         </div>
     </div>
     {% endif %}
+    {% if has_permission('view_employees') %}
+    <div class="col-12 col-xl-8">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <h2 class="h6 mb-0">Upcoming birthdays (next {{ birthday_window_days }} days)</h2>
+                    <i class="bi bi-gift text-primary"></i>
+                </div>
+                {% if upcoming_birthdays %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Birthday</th>
+                                <th>In</th>
+                                <th>Turning</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in upcoming_birthdays %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('employees.view', id=item.employee.id) }}" class="text-decoration-none">
+                                        {{ item.employee.full_name }}
+                                    </a>
+                                </td>
+                                <td>{{ item.birthday.strftime('%d %b') }}</td>
+                                <td>
+                                    {% if item.days_away == 0 %}
+                                    <span class="badge bg-success">Today</span>
+                                    {% elif item.days_away == 1 %}
+                                    Tomorrow
+                                    {% else %}
+                                    {{ item.days_away }} days
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.turning_age }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">No upcoming birthdays found.</p>
+                {% endif %}
+                <a href="{{ url_for('employees.birthdays') }}" class="btn btn-sm btn-outline-primary mt-3">View yearly birthdays</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

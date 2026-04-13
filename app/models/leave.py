@@ -57,10 +57,12 @@ class LeaveRequest(BaseModel):
         db.Index('ix_leave_requests_leave_type_id', 'leave_type_id'),
         db.Index('ix_leave_requests_status', 'status'),
         db.Index('ix_leave_requests_start_date', 'start_date'),
+        db.Index('ix_leave_requests_handover_to_id', 'handover_to_id'),
     )
 
     employee_id = db.Column(db.Integer, db.ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
     leave_type_id = db.Column(db.Integer, db.ForeignKey('leave_types.id', ondelete='CASCADE'), nullable=False)
+    handover_to_id = db.Column(db.Integer, db.ForeignKey('employees.id', ondelete='SET NULL'), nullable=True)
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
     days_requested = db.Column(db.Numeric(5, 2), nullable=False)
@@ -71,15 +73,27 @@ class LeaveRequest(BaseModel):
     review_notes = db.Column(db.Text, nullable=True)
     document_path = db.Column(db.String(500), nullable=True)  # if leave type requires document
 
-    employee = db.relationship('Employee', backref='leave_requests')
+    employee = db.relationship('Employee', foreign_keys=[employee_id], backref='leave_requests')
+    handover_to = db.relationship('Employee', foreign_keys=[handover_to_id], backref='leave_covering_for')
     leave_type = db.relationship('LeaveType', backref='requests')
 
 
 class PublicHoliday(BaseModel):
-    """Kenyan public holidays - used to block leave and exclude from working days."""
+    """
+    Public holidays excluded from working-day leave counts.
+    - kind 'recurring': same calendar month/day every year (country-fixed).
+    - kind 'one_off': a single calendar date (extra holidays for a specific year only).
+    """
     __tablename__ = 'public_holidays'
-    __table_args__ = (db.Index('ix_public_holidays_date', 'date'),)
+    __table_args__ = (
+        db.Index('ix_public_holidays_kind', 'kind'),
+        db.Index('ix_public_holidays_date', 'date'),
+    )
 
-    date = db.Column(db.Date, nullable=False)
+    kind = db.Column(db.String(20), nullable=False, default='one_off')  # one_off | recurring
     name = db.Column(db.String(200), nullable=False)
-    year = db.Column(db.Integer, nullable=False)
+    # One-off: the actual date (year-specific)
+    date = db.Column(db.Date, nullable=True)
+    # Recurring: month (1-12) and day (1-31); date is left null
+    recurring_month = db.Column(db.Integer, nullable=True)
+    recurring_day = db.Column(db.Integer, nullable=True)

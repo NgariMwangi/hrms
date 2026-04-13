@@ -17,7 +17,7 @@
         <div class="col-12">
             <label class="form-label">{{ form.days_count_basis.label }}</label>
             {{ form.days_count_basis(class_='form-select') }}
-            <span class="form-text">Annual leave uses <strong>working days</strong>; maternity / paternity often use <strong>calendar days</strong> (every day counts).</span>
+            <span class="form-text">Annual leave uses <strong>working days</strong> (Mon–Fri, excluding <a href="{{ url_for('leave.holidays_index') }}">public holidays</a>); maternity / paternity often use <strong>calendar days</strong> (every day counts).</span>
         </div>
         <div class="col-md-4">
             <label class="form-label">{{ form.days_per_year.label }}</label>
@@ -29,10 +29,12 @@
                 {{ form.accrues_monthly(class_='form-check-input') }}
                 <label class="form-check-label">{{ form.accrues_monthly.label }}</label>
             </div>
+            <span class="form-text d-block">When enabled, employees <strong>earn</strong> leave each month (e.g. 2 days/month). Total is capped by <em>Days per year</em> if set.</span>
         </div>
         <div class="col-md-4">
             <label class="form-label">{{ form.days_per_month.label }}</label>
             {{ form.days_per_month(class_='form-control') }}
+            <span class="form-text">Example: <code>2</code> for two earned days every month.</span>
         </div>
         <div class="col-12"><hr class="my-1"></div>
         <div class="col-md-4">
@@ -64,6 +66,7 @@
         <div class="col-md-4">
             <label class="form-label">{{ form.carry_forward_max.label }}</label>
             {{ form.carry_forward_max(class_='form-control') }}
+            <span class="form-text">Maximum days that can roll from one year’s closing balance into the next (use <em>Leave balances → Year rollover</em>). Use <code>0</code> for no carry.</span>
         </div>
         <div class="col-12">
             <div class="form-check">

@@ -1,4 +1,6 @@
 """Employee CRUD and management."""
+import calendar
+from datetime import date
 import os
 import mimetypes
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, abort, send_file
@@ -29,7 +31,6 @@ employees_bp = Blueprint('employees', __name__)
 
 def _next_employee_number():
     """Generate EMP-YYYY-####."""
-    from datetime import date
     year = date.today().year
     prefix = f"{current_app.config.get('EMPLOYEE_NUMBER_PREFIX', 'EMP')}-{year}-"
     last = db.session.query(Employee).filter(Employee.employee_number.startswith(prefix)).order_by(
@@ -41,6 +42,15 @@ def _next_employee_number():
         except (IndexError, ValueError):
             pass
     return f"{prefix}{num:04d}"
+
+
+def _next_birthday_for_year(year: int, month: int, day: int):
+    """Build birthday date in a given year with leap-year fallback."""
+    try:
+        return date(year, month, day)
+    except ValueError:
+        # Treat Feb 29 birthdays as Mar 1 on non-leap years.
+        return date(year, 3, 1)
 
 
 @employees_bp.route('/')
@@ -70,6 +80,43 @@ def list():
     employees = q.order_by(Employee.employee_number).all()
     departments = db.session.query(Department).order_by(Department.name).all()
     return render_template('employees/list.html', employees=employees, departments=departments)
+
+
+@employees_bp.route('/birthdays')
+@login_required
+@permission_required('view_employees')
+def birthdays():
+    selected_year = request.args.get('year', type=int) or date.today().year
+    rows = (
+        db.session.query(Employee)
+        .filter(
+            Employee.status == 'active',
+            Employee.date_of_birth.isnot(None),
+        )
+        .all()
+    )
+    month_groups = {month: [] for month in range(1, 13)}
+    for emp in rows:
+        dob = emp.date_of_birth
+        birthday_this_year = _next_birthday_for_year(selected_year, dob.month, dob.day)
+        month_groups[birthday_this_year.month].append(
+            {
+                'employee': emp,
+                'birthday': birthday_this_year,
+                'turning_age': selected_year - dob.year,
+            }
+        )
+    for month in month_groups:
+        month_groups[month].sort(key=lambda item: (item['birthday'].day, item['employee'].full_name.lower()))
+    year_choices = [selected_year - 1, selected_year, selected_year + 1]
+    month_names = {month: calendar.month_name[month] for month in range(1, 13)}
+    return render_template(
+        'employees/birthdays.html',
+        selected_year=selected_year,
+        month_groups=month_groups,
+        year_choices=year_choices,
+        month_names=month_names,
+    )
 
 
 @employees_bp.route('/create', methods=['GET', 'POST'])

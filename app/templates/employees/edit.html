@@ -2,6 +2,9 @@
 {% block title %}Edit {{ employee.full_name }} - {{ app_name }}{% endblock %}
 {% block content %}
 <h1 class="h3 mb-4">Edit Employee: {{ employee.employee_number }}</h1>
+{% if not form.branch_id.choices %}
+<div class="alert alert-warning mb-3">No branches exist for this company. Add one under <strong>Organization → Branches</strong> before you can save this profile.</div>
+{% endif %}
 <form method="post" action="{{ url_for('employees.edit', id=employee.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">
@@ -20,11 +23,20 @@
         <div class="col-md-4">{{ form.department_id.label(class='form-label') }}{{ form.department_id(class='form-select') }}</div>
         <div class="col-md-4">{{ form.job_title_id.label(class='form-label') }}{{ form.job_title_id(class='form-select') }}</div>
         <div class="col-md-4">{{ form.manager_id.label(class='form-label') }}{{ form.manager_id(class='form-select') }}</div>
+        <div class="col-md-4">{{ form.branch_id.label(class='form-label') }} <span class="text-danger">*</span>{{ form.branch_id(class='form-select', required=True, **({'disabled': 'disabled'} if not form.branch_id.choices else {})) }}</div>
         <div class="col-md-4">{{ form.employment_type.label(class='form-label') }}{{ form.employment_type(class='form-select') }}</div>
         <div class="col-md-4"><label class="form-label">Hire Date *</label><input type="date" name="hire_date" class="form-control" required value="{{ (form.hire_date.data or employee.hire_date).strftime('%Y-%m-%d') if (form.hire_date.data or employee.hire_date) else '' }}"></div>
         <div class="col-md-4">{{ form.status.label(class='form-label') }}{{ form.status(class='form-select') }}</div>
+        <div class="col-12"><hr><h5 class="h6 text-muted mb-2">Bank details (payroll)</h5>
+            <p class="small text-muted mb-3">Change these when the employee switches bank or account. Updates apply to payroll that uses this record (typically from the next pay run after you save).</p>
+        </div>
+        <div class="col-md-4"><label class="form-label">Bank name</label><input type="text" name="bank_name" class="form-control" value="{{ form.bank_name.data or employee.bank_name or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Bank branch</label><input type="text" name="bank_branch" class="form-control" value="{{ form.bank_branch.data or employee.bank_branch or '' }}" placeholder="e.g. Westlands"></div>
+        <div class="col-md-4"><label class="form-label">Account number</label><input type="text" name="bank_account_number" class="form-control" value="{{ form.bank_account_number.data or employee.bank_account_number or '' }}" autocomplete="off"></div>
+        <div class="col-md-4"><label class="form-label">Bank code</label><input type="text" name="bank_code" class="form-control" value="{{ form.bank_code.data or employee.bank_code or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">SWIFT code</label><input type="text" name="swift_code" class="form-control" value="{{ form.swift_code.data or employee.swift_code or '' }}"></div>
         <div class="col-12">
-            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="submit" class="btn btn-primary" {% if not form.branch_id.choices %}disabled{% endif %}>Save</button>
             <a href="{{ url_for('employees.view', id=employee.id) }}" class="btn btn-outline-secondary">Cancel</a>
         </div>
     </div>

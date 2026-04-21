@@ -1,8 +1,8 @@
 """
-Seed database with initial roles, permissions, statutory rates (Kenya 2026), reference data.
+Seed database with initial roles, permissions, a demo tenant (company + branch + employer),
+and reference data scoped by company_id.
 
-Values below are aligned with the current development database export so a fresh production
-run produces the same reference data. Run after migrations:
+Run after creating tables (e.g. SQLAlchemy create_all):
 
   python -c "from scripts.seed_data import run; run()"
 
@@ -17,17 +17,19 @@ _project_root = Path(__file__).resolve().parent.parent
 _env = _project_root / ".env"
 if _env.exists():
     from dotenv import load_dotenv
+
     load_dotenv(_env)
 
 from app import create_app
 from app.extensions import db
 from app.models.user import Role, Permission, RolePermission
-from app.models.statutory import StatutoryRate, PayeBracket, NssfTier
+from app.models.company import Company, Branch
+from app.models.employer import Employer
 from app.models.department import Department
 from app.models.job_title import JobTitle
-from app.models.leave import LeaveType, PublicHoliday
-from app.models.document import DocumentCategory
+from app.models.leave import PublicHoliday
 from app.models.payroll import Allowance
+from app.services.company_bootstrap import bootstrap_company_defaults
 
 
 def run():
@@ -43,6 +45,8 @@ def run():
             ('view_payroll', 'View payroll'),
             ('process_payroll', 'Process payroll'),
             ('approve_payroll', 'Approve payroll'),
+            ('review_payroll_finance', 'Finance review approved payroll'),
+            ('mark_payroll_paid', 'Mark payroll as paid'),
             ('view_leave', 'View leave'),
             ('manage_leave_types', 'Manage leave types'),
             ('approve_leave', 'Approve leave'),
@@ -51,6 +55,9 @@ def run():
             ('manage_statutory', 'Manage statutory rates'),
             ('manage_settings', 'Manage settings'),
             ('view_audit_log', 'View audit log'),
+            ('request_overtime', 'Request overtime compensation'),
+            ('submit_overtime_same_dept', 'Submit overtime for employee (same department / team)'),
+            ('approve_overtime', 'Approve any overtime request (HR)'),
         ]
         for code, name in perms:
             if db.session.query(Permission).filter_by(code=code).first() is None:
@@ -60,26 +67,77 @@ def run():
         # Role → permission codes (must match production DB role_permissions)
         role_perms = {
             'ADMIN': [
-                'approve_leave', 'approve_payroll', 'create_employees', 'edit_employees',
-                'manage_departments', 'manage_settings', 'manage_statutory', 'process_payroll',
-                'view_attendance', 'view_audit_log', 'view_departments', 'view_employees',
-                'view_leave', 'view_payroll', 'view_reports',
+                'approve_leave',
+                'approve_overtime',
+                'approve_payroll',
+                'review_payroll_finance',
+                'mark_payroll_paid',
+                'create_employees',
+                'edit_employees',
+                'manage_departments',
+                'manage_settings',
+                'manage_statutory',
+                'process_payroll',
+                'request_overtime',
+                'submit_overtime_same_dept',
+                'view_attendance',
+                'view_audit_log',
+                'view_departments',
+                'view_employees',
+                'view_leave',
+                'view_payroll',
+                'view_reports',
             ],
             'HR_MANAGER': [
-                'approve_leave', 'approve_payroll', 'create_employees', 'edit_employees',
-                'manage_departments', 'manage_statutory', 'process_payroll', 'view_attendance',
-                'view_audit_log', 'view_departments', 'view_employees', 'view_leave',
-                'view_payroll', 'view_reports',
+                'approve_leave',
+                'approve_overtime',
+                'approve_payroll',
+                'create_employees',
+                'edit_employees',
+                'manage_departments',
+                'manage_statutory',
+                'process_payroll',
+                'request_overtime',
+                'submit_overtime_same_dept',
+                'view_attendance',
+                'view_audit_log',
+                'view_departments',
+                'view_employees',
+                'view_leave',
+                'view_payroll',
+                'view_reports',
             ],
             'HR_STAFF': [
-                'approve_leave', 'create_employees', 'edit_employees', 'process_payroll',
-                'view_attendance', 'view_departments', 'view_employees', 'view_leave',
-                'view_payroll', 'view_reports',
+                'approve_leave',
+                'approve_overtime',
+                'create_employees',
+                'edit_employees',
+                'process_payroll',
+                'request_overtime',
+                'submit_overtime_same_dept',
+                'view_attendance',
+                'view_departments',
+                'view_employees',
+                'view_leave',
+                'view_payroll',
+                'view_reports',
             ],
             'MANAGER': [
-                'approve_leave', 'view_departments', 'view_employees', 'view_leave', 'view_reports',
+                'approve_leave',
+                'request_overtime',
+                'submit_overtime_same_dept',
+                'view_departments',
+                'view_employees',
+                'view_leave',
+                'view_reports',
             ],
-            'EMPLOYEE': ['view_leave'],
+            'EMPLOYEE': ['request_overtime', 'view_leave'],
+            'FINANCE_PAYROLL_APPROVER': [
+                'view_payroll',
+                'review_payroll_finance',
+                'mark_payroll_paid',
+                'view_reports',
+            ],
         }
         for code, name in [
             ('ADMIN', 'Administrator'),
@@ -87,6 +145,7 @@ def run():
             ('HR_STAFF', 'HR Staff'),
             ('MANAGER', 'Manager'),
             ('EMPLOYEE', 'Employee'),
+            ('FINANCE_PAYROLL_APPROVER', 'Finance Payroll Approver'),
         ]:
             role = db.session.query(Role).filter_by(code=code).first()
             if role is None:
@@ -101,104 +160,62 @@ def run():
                     db.session.add(RolePermission(role_id=role.id, permission_id=perm.id))
         db.session.commit()
 
-        # Statutory rates (effective from 2026-01-01)
-        eff_from = date(2026, 1, 1)
-        for code, value, desc in [
-            ('SHIF_PERCENT', 2.75, 'SHIF 2.75% of gross'),
-            ('HOUSING_LEVY_PERCENT', 1.5, 'Housing Levy 1.5% employee'),
-            ('PERSONAL_RELIEF', 2400, 'Monthly personal relief (KES)'),
+        # Demo tenant (first-time DB or extra seed run)
+        company = db.session.query(Company).order_by(Company.id).first()
+        if company is None:
+            company = Company(name='Demo Company', is_active=True)
+            db.session.add(company)
+            db.session.flush()
+            db.session.add(Branch(company_id=company.id, name='Head Office', country_code='KE'))
+            db.session.add(Employer(company_id=company.id, name='Demo Company'))
+            db.session.commit()
+
+        cid = company.id
+        ke = 'KE'
+        bootstrap_company_defaults(cid, ke)
+
+        # Departments
+        for code, name in [
+            ('FIN', 'FINANCE'),
+            ('GEN', 'General'),
+            ('IT', 'IT'),
         ]:
-            if db.session.query(StatutoryRate).filter(
-                StatutoryRate.code == code, StatutoryRate.effective_from == eff_from
-            ).first() is None:
-                db.session.add(
-                    StatutoryRate(code=code, effective_from=eff_from, value=value, description=desc)
-                )
+            if db.session.query(Department).filter_by(company_id=cid, code=code).first() is None:
+                db.session.add(Department(company_id=cid, code=code, name=name))
         db.session.commit()
 
-        # PAYE brackets (aligned with current DB / Finance Act bands)
-        if db.session.query(PayeBracket).filter(PayeBracket.effective_from == eff_from).first() is None:
-            for order, min_a, max_a, rate in [
-                (1, 0, 24000, 10),
-                (2, 24001, 32333, 25),
-                (3, 32334, 500000, 30),
-                (4, 500001, 800000, 32.5),
-                (5, 800001, None, 35),
-            ]:
-                db.session.add(
-                    PayeBracket(
-                        effective_from=eff_from,
-                        bracket_order=order,
-                        min_amount=min_a,
-                        max_amount=max_a,
-                        rate_percent=rate,
-                    )
-                )
+        # Job titles
+        for code, name in [
+            ('STAFF', 'Staff'),
+            ('SWE', 'Software Engineer'),
+        ]:
+            if db.session.query(JobTitle).filter_by(company_id=cid, code=code).first() is None:
+                db.session.add(JobTitle(company_id=cid, code=code, name=name))
         db.session.commit()
 
-        # NSSF tiers (Feb 2026)
-        nssf_from = date(2026, 2, 1)
-        if db.session.query(NssfTier).filter(NssfTier.effective_from == nssf_from).first() is None:
-            db.session.add(
-                NssfTier(
-                    effective_from=nssf_from,
-                    tier_number=1,
-                    pensionable_min=0,
-                    pensionable_max=9000,
-                    employee_percent=6,
-                    employer_percent=6,
-                    employee_max_amount=540,
-                    employer_max_amount=540,
-                )
-            )
-            db.session.add(
-                NssfTier(
-                    effective_from=nssf_from,
-                    tier_number=2,
-                    pensionable_min=9001,
-                    pensionable_max=108000,
-                    employee_percent=6,
-                    employer_percent=6,
-                    employee_max_amount=5940,
-                    employer_max_amount=5940,
-                )
-            )
-        db.session.commit()
-
-        # Leave types (aligned with current DB)
-        leave_specs = [
-            # code, name, days_per_year, accrues_monthly, days_per_month, is_paid, days_count_basis
-            ('ANNUAL', 'Annual Leave', Decimal('24'), True, Decimal('2'), True, 'working'),
-            ('SICK', 'Sick Leave', Decimal('14'), False, None, True, 'working'),
-            ('MATERNITY', 'Maternity Leave', Decimal('90'), False, None, True, 'calendar'),
-            ('PATERNITY', 'Paternity Leave', Decimal('14'), False, None, True, 'calendar'),
-            ('COMPASSIONATE', 'Compassionate Leave', Decimal('5'), False, None, True, 'working'),
-            ('UNPAID', 'Unpaid Leave', Decimal('0'), False, None, False, 'working'),
-        ]
-        for code, name, days_py, accrues, dpm, is_paid, basis in leave_specs:
-            if db.session.query(LeaveType).filter_by(code=code).first() is None:
+        # Allowances (catalog for payroll)
+        for code, name, is_taxable, is_pensionable in [
+            ('*', 'House Allowance', True, True),
+            ('HOUSE', 'House Allowance', True, True),
+            ('MEAL', 'Meal Allowance', True, False),
+            ('MEDICAL', 'Medical Allowance', True, False),
+            ('OTHER', 'Other Allowance', True, False),
+            ('P', 'Transport Allowance', True, True),
+            ('TRANSPORT', 'Transport Allowance', True, False),
+        ]:
+            if db.session.query(Allowance).filter_by(company_id=cid, code=code).first() is None:
                 db.session.add(
-                    LeaveType(
+                    Allowance(
+                        company_id=cid,
                         code=code,
                         name=name,
-                        days_per_year=days_py,
-                        accrues_monthly=accrues,
-                        days_per_month=dpm,
-                        requires_approval=True,
-                        requires_document=False,
-                        days_count_basis=basis,
-                        is_paid=is_paid,
-                        min_days_request=Decimal('0.5'),
-                        carry_forward_max=10,
-                        is_active=True,
+                        is_taxable=is_taxable,
+                        is_pensionable=is_pensionable,
                     )
                 )
         db.session.commit()
 
-        # Kenya public holidays:
-        # - fixed-date holidays as recurring rows
-        # - moveable religious / Easter holidays as one-off rows (sample year)
-        # HR can edit these under Leave -> Public holidays.
+        # Kenya public holidays (recurring + sample one-offs) — tenant + country scoped
         for month, day, hol_name in [
             (1, 1, "New Year's Day"),
             (5, 1, 'Labour Day'),
@@ -212,6 +229,8 @@ def run():
             exists = (
                 db.session.query(PublicHoliday)
                 .filter(
+                    PublicHoliday.company_id == cid,
+                    PublicHoliday.country_code == ke,
                     PublicHoliday.kind == 'recurring',
                     PublicHoliday.recurring_month == month,
                     PublicHoliday.recurring_day == day,
@@ -221,6 +240,8 @@ def run():
             if exists is None:
                 db.session.add(
                     PublicHoliday(
+                        company_id=cid,
+                        country_code=ke,
                         kind='recurring',
                         name=hol_name,
                         recurring_month=month,
@@ -230,7 +251,6 @@ def run():
                 )
         db.session.commit()
 
-        # One-off / moveable Kenya holidays (2026 sample dates)
         for hol_date, hol_name in [
             (date(2026, 4, 3), 'Good Friday'),
             (date(2026, 4, 6), 'Easter Monday'),
@@ -240,6 +260,8 @@ def run():
             exists = (
                 db.session.query(PublicHoliday)
                 .filter(
+                    PublicHoliday.company_id == cid,
+                    PublicHoliday.country_code == ke,
                     PublicHoliday.kind == 'one_off',
                     PublicHoliday.date == hol_date,
                 )
@@ -248,6 +270,8 @@ def run():
             if exists is None:
                 db.session.add(
                     PublicHoliday(
+                        company_id=cid,
+                        country_code=ke,
                         kind='one_off',
                         name=hol_name,
                         date=hol_date,
@@ -257,61 +281,8 @@ def run():
                 )
         db.session.commit()
 
-        # Departments (reference rows from current DB)
-        for code, name in [
-            ('FIN', 'FINANCE'),
-            ('GEN', 'General'),
-            ('IT', 'IT'),
-        ]:
-            if db.session.query(Department).filter_by(code=code).first() is None:
-                db.session.add(Department(code=code, name=name))
-        db.session.commit()
-
-        # Job titles
-        for code, name in [
-            ('STAFF', 'Staff'),
-            ('SWE', 'Software Engineer'),
-        ]:
-            if db.session.query(JobTitle).filter_by(code=code).first() is None:
-                db.session.add(JobTitle(code=code, name=name))
-        db.session.commit()
-
-        # Allowances (company-wide types — matches current DB codes/names/flags)
-        for code, name, is_taxable, is_pensionable in [
-            ('*', 'House Allowance', True, True),
-            ('HOUSE', 'House Allowance', True, True),
-            ('MEAL', 'Meal Allowance', True, False),
-            ('MEDICAL', 'Medical Allowance', True, False),
-            ('OTHER', 'Other Allowance', True, False),
-            ('P', 'Transport Allowance', True, True),
-            ('TRANSPORT', 'Transport Allowance', True, False),
-        ]:
-            if db.session.query(Allowance).filter_by(code=code).first() is None:
-                db.session.add(
-                    Allowance(
-                        code=code,
-                        name=name,
-                        is_taxable=is_taxable,
-                        is_pensionable=is_pensionable,
-                    )
-                )
-        db.session.commit()
-
-        # Document categories for employee documents
-        for code, name, track_expiry in [
-            ('CONTRACT', 'Contract', True),
-            ('ID', 'National ID', True),
-            ('KRA_PIN', 'KRA PIN', False),
-            ('NSSF', 'NSSF', False),
-            ('CERTIFICATE', 'Certificate', True),
-            ('OTHER', 'Other', False),
-        ]:
-            if db.session.query(DocumentCategory).filter_by(code=code).first() is None:
-                db.session.add(DocumentCategory(code=code, name=name, track_expiry=track_expiry))
-        db.session.commit()
-
         print(
-            'Seed completed: permissions, roles, statutory rates, PAYE/NSSF, leave types, '
-            'public holidays (recurring + one-off), departments, job titles, allowances, '
-            'document categories.'
+            'Seed completed: permissions, roles, demo company + branch + employer, '
+            'defaults (leave types, document categories, KE statutory), departments, job titles, '
+            'allowances, public holidays.'
         )

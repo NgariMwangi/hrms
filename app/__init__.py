@@ -72,6 +72,8 @@ def create_app(config_object=None):
     # Load all models and create tables *before* blueprints (so metadata has full dependency order).
     with app.app_context():
         from app.models import (  # noqa: F401
+            Company,
+            Branch,
             User,
             Role,
             Permission,
@@ -88,6 +90,7 @@ def create_app(config_object=None):
             PayrollItem,
             PayrollStatutoryRemittance,
             PayrollRunManualDeduction,
+            PayrollRunExclusion,
             EmployeeSalary,
             EmployeeAllowance,
             Allowance,
@@ -98,6 +101,7 @@ def create_app(config_object=None):
             LeaveBalance,
             LeaveRequest,
             PublicHoliday,
+            OvertimeRequest,
             AttendanceRecord,
             EmployeeDocument,
             DocumentCategory,
@@ -131,16 +135,20 @@ def create_app(config_object=None):
 # Explicit creation order: dependencies first. SQLAlchemy's sorted_tables can be wrong.
 _TABLE_ORDER = (
     'permissions', 'roles', 'role_permissions',
-    'departments', 'job_titles', 'document_categories',
-    'earnings_deduction_types', 'allowances', 'leave_types', 'public_holidays',
-    'statutory_rate_types', 'statutory_rates', 'paye_brackets', 'nssf_tiers',
-    'employees',   # before users (User.employee_id -> employees)
+    'companies', 'branches',
+    'statutory_rate_types',
     'employers',
+    'document_categories',
+    'departments', 'job_titles',
+    'allowances', 'deductions', 'earnings_deduction_types',
+    'leave_types', 'public_holidays',
+    'statutory_rates', 'paye_brackets', 'nssf_tiers',
+    'employees',   # before users (User.employee_id -> employees)
     'users', 'user_roles',
     'audit_logs', 'leave_balances', 'leave_requests', 'employee_salaries', 'employee_allowances',
     'deductions', 'employee_deductions',
     'attendance_records', 'employee_documents',
-    'payroll_runs', 'payroll_run_manual_deductions', 'payroll_items', 'payroll_statutory_remitances',
+    'payroll_runs', 'overtime_requests', 'payroll_run_exclusions', 'payroll_run_manual_deductions', 'payroll_items', 'payroll_statutory_remitances',
     'notifications', 'saved_reports',
 )
 
@@ -208,6 +216,7 @@ def _register_blueprints(app):
     from app.routes.dashboard import dashboard_bp
     from app.routes.employees import employees_bp
     from app.routes.departments import departments_bp
+    from app.routes.branches import branches_bp
     from app.routes.leave import leave_bp
     from app.routes.attendance import attendance_bp
     from app.routes.payroll import payroll_bp
@@ -215,11 +224,13 @@ def _register_blueprints(app):
     from app.routes.reports import reports_bp
     from app.routes.settings import settings_bp
     from app.routes.api import api_bp
+    from app.routes.overtime import overtime_bp
 
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
     app.register_blueprint(employees_bp, url_prefix='/employees')
     app.register_blueprint(departments_bp, url_prefix='/departments')
+    app.register_blueprint(branches_bp, url_prefix='/branches')
     try:
         from app.routes.job_titles import job_titles_bp
         app.register_blueprint(job_titles_bp, url_prefix='/job-titles')
@@ -231,6 +242,7 @@ def _register_blueprints(app):
     except Exception as e:
         app.logger.warning('Allowances blueprint not registered: %s', e)
     app.register_blueprint(leave_bp, url_prefix='/leave')
+    app.register_blueprint(overtime_bp, url_prefix='/overtime')
     app.register_blueprint(attendance_bp, url_prefix='/attendance')
     app.register_blueprint(payroll_bp, url_prefix='/payroll')
     app.register_blueprint(statutory_bp, url_prefix='/statutory')
@@ -258,9 +270,17 @@ def _register_error_handlers(app):
 
 def _register_context_processors(app):
     """Register template context processors."""
-    from app.context_processors import inject_config, inject_permissions, register_template_filters
+    from app.context_processors import (
+        inject_config,
+        inject_pending_approvals,
+        inject_permissions,
+        inject_tenant_nav,
+        register_template_filters,
+    )
     app.context_processor(inject_permissions)
     app.context_processor(inject_config)
+    app.context_processor(inject_tenant_nav)
+    app.context_processor(inject_pending_approvals)
     register_template_filters(app)
 
 

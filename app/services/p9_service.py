@@ -48,7 +48,18 @@ def _pay_period_date(run: PayrollRun) -> date:
     return date(int(run.pay_year), int(run.pay_month), 1)
 
 
-def aggregate_p9_for_year(calendar_year: int) -> dict:
+def _statutory_company_and_country(item: PayrollItem) -> tuple[int, str]:
+    """Company from payroll run; country from employee branch (defaults KE)."""
+    run = item.payroll_run
+    cid = int(run.company_id) if run and run.company_id is not None else 0
+    cc = 'KE'
+    emp = item.employee
+    if emp and getattr(emp, 'branch', None) is not None and emp.branch.country_code:
+        cc = str(emp.branch.country_code).upper()[:2]
+    return cid, cc
+
+
+def aggregate_p9_for_year(calendar_year: int, company_id: int) -> dict:
     """
     Per employee, full-year P9-style totals from PayrollItem snapshots + PAYE breakdown.
 
@@ -65,8 +76,12 @@ def aggregate_p9_for_year(calendar_year: int) -> dict:
         .filter(
             PayrollRun.status == 'approved',
             PayrollRun.pay_year == calendar_year,
+            PayrollRun.company_id == company_id,
         )
-        .options(joinedload(PayrollItem.payroll_run))
+        .options(
+            joinedload(PayrollItem.payroll_run),
+            joinedload(PayrollItem.employee).joinedload(Employee.branch),
+        )
         .all()
     )
     by_emp: dict = defaultdict(
@@ -103,7 +118,8 @@ def aggregate_p9_for_year(calendar_year: int) -> dict:
         bucket['shif'] += _quantize(item.shif)
         bucket['housing_levy'] += _quantize(item.housing_levy)
         pd = _pay_period_date(run)
-        br = calculate_paye_breakdown(item.taxable_pay, pd)
+        sc, scc = _statutory_company_and_country(item)
+        br = calculate_paye_breakdown(item.taxable_pay, pd, sc, scc)
         bucket['tax_before_relief'] += br['tax_before_relief']
         bucket['personal_relief_applied'] += br['personal_relief_applied']
 
@@ -125,12 +141,12 @@ def aggregate_p9_for_year(calendar_year: int) -> dict:
     return dict(by_emp)
 
 
-def fetch_annual_paye_matrix(calendar_year: int) -> dict:
+def fetch_annual_paye_matrix(calendar_year: int, company_id: int) -> dict:
     """
     Aggregate PAYE by employee and calendar month from approved payroll runs.
     Returns dict[employee_id] = {'months': {1..12: Decimal}, 'total': Decimal}
     """
-    full = aggregate_p9_for_year(calendar_year)
+    full = aggregate_p9_for_year(calendar_year, company_id)
     out = {}
     for emp_id, data in full.items():
         months = data['months_paye']
@@ -147,11 +163,11 @@ def load_employees_for_p9(employee_ids: list) -> dict:
     return {e.id: e for e in emps}
 
 
-def rows_for_csv(calendar_year: int) -> list:
+def rows_for_csv(calendar_year: int, company_id: int) -> list:
     """
     One row per employee: identity + monthly PAYE + yearly P9 totals (iTax-oriented).
     """
-    full = aggregate_p9_for_year(calendar_year)
+    full = aggregate_p9_for_year(calendar_year, company_id)
     emps = load_employees_for_p9(list(full.keys()))
     rows = []
     for emp_id, data in full.items():
@@ -179,7 +195,7 @@ def rows_for_csv(calendar_year: int) -> list:
     return rows
 
 
-def monthly_p9_rows(calendar_year: int, employee_id: int) -> list:
+def monthly_p9_rows(calendar_year: int, employee_id: int, company_id: int) -> list:
     """
     One row per month that has approved payroll for this employee (months without payroll are omitted).
     Pension = NSSF employee contribution; PAYE auto = stored PAYE; MPR from statutory rates.
@@ -191,9 +207,13 @@ def monthly_p9_rows(calendar_year: int, employee_id: int) -> list:
         .filter(
             PayrollRun.status == 'approved',
             PayrollRun.pay_year == calendar_year,
+            PayrollRun.company_id == company_id,
             PayrollItem.employee_id == employee_id,
         )
-        .options(joinedload(PayrollItem.payroll_run))
+        .options(
+            joinedload(PayrollItem.payroll_run),
+            joinedload(PayrollItem.employee).joinedload(Employee.branch),
+        )
         .all()
     )
     by_month: dict[int, list] = defaultdict(list)
@@ -213,11 +233,12 @@ def monthly_p9_rows(calendar_year: int, employee_id: int) -> list:
         pd = date(calendar_year, m, 1)
         last_day = date(calendar_year, m, calendar.monthrange(calendar_year, m)[1])
         pay_date_str = last_day.strftime('%d/%m/%Y')
-        mpr = get_personal_relief(pd)
+        sc, scc = _statutory_company_and_country(batch[0])
+        mpr = get_personal_relief(pd, sc, scc)
         taxable = sum(_quantize(i.taxable_pay) for i in batch)
         paye = sum(_quantize(i.paye) for i in batch)
         pension = sum(_quantize(i.nssf_employee) for i in batch)
-        br = calculate_paye_breakdown(taxable, pd)
+        br = calculate_paye_breakdown(taxable, pd, sc, scc)
         unused = (mpr - br['personal_relief_applied']).quantize(Decimal('0.01'))
         if unused < 0:
             unused = Decimal('0')
@@ -245,15 +266,17 @@ def monthly_p9_totals(monthly_rows: list) -> dict:
     return out
 
 
-def row_for_employee(calendar_year: int, employee_id: int) -> Optional[dict]:
-    full = aggregate_p9_for_year(calendar_year)
+def row_for_employee(calendar_year: int, employee_id: int, company_id: int) -> Optional[dict]:
+    emp = db.session.get(Employee, employee_id)
+    if not emp or emp.company_id != company_id:
+        return None
+    full = aggregate_p9_for_year(calendar_year, company_id)
     if employee_id not in full:
         return None
-    emp = db.session.get(Employee, employee_id)
     data = full[employee_id]
     months = data['months_paye']
     total_paye = data['paye']
-    monthly_rows = monthly_p9_rows(calendar_year, employee_id)
+    monthly_rows = monthly_p9_rows(calendar_year, employee_id, company_id)
     monthly_totals = monthly_p9_totals(monthly_rows)
     return {
         'employee': emp,

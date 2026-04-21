@@ -9,12 +9,16 @@ from flask import Blueprint, abort, current_app, render_template, request, send_
 from flask_login import login_required, current_user
 from app.decorators.permissions import permission_required
 from app.extensions import db
+from app.utils.tenant import require_company_id
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
-from app.models.payroll import PayrollRun, PayrollStatutoryRemittance
+from app.models.payroll import PayrollRun, PayrollItem, PayrollStatutoryRemittance
 from app.models.employee import Employee
 from app.models.department import Department
 from app.models.employer import Employer
+from app.models.leave import LeaveRequest
+from app.models.overtime import OvertimeRequest
 from app.services.p9_service import MONTH_NAMES, row_for_employee, rows_for_csv
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -34,9 +38,14 @@ def index():
 
 def _employee_list_query():
     """Build filtered Employee query with department/job_title loaded."""
-    q = db.session.query(Employee).options(
-        joinedload(Employee.department),
-        joinedload(Employee.job_title),
+    cid = require_company_id()
+    q = (
+        db.session.query(Employee)
+        .filter(Employee.company_id == cid)
+        .options(
+            joinedload(Employee.department),
+            joinedload(Employee.job_title),
+        )
     )
     status = request.args.get('status', '').strip()
     department_id = request.args.get('department_id', type=int)
@@ -58,9 +67,9 @@ def _employee_list_query():
     return q.order_by(Employee.employee_number)
 
 
-def _get_employer_name_pin(default_name='Employer', default_pin='—'):
+def _get_employer_name_pin(company_id: int, default_name='Employer', default_pin='—'):
     """Employer identifiers used in documents; falls back to config for backward compatibility."""
-    emp = db.session.query(Employer).order_by(Employer.id.asc()).first()
+    emp = db.session.query(Employer).filter(Employer.company_id == company_id).first()
     config_name = current_app.config.get('EMPLOYER_NAME') or ''
     config_pin = current_app.config.get('EMPLOYER_KRA_PIN') or ''
 
@@ -74,8 +83,14 @@ def _p9_access_own_only() -> bool:
     return bool(current_user.is_authenticated and not current_user.has_permission('view_reports'))
 
 
-def _p9_require_own_employee(employee_id: int) -> None:
-    """403 unless HR reports access or viewing own employee record."""
+def _p9_require_employee_access(employee_id: int) -> None:
+    """403 unless same-tenant HR reports access or viewing own employee record."""
+    emp = db.session.get(Employee, employee_id)
+    if not emp:
+        abort(404)
+    cid = getattr(current_user, 'company_id', None)
+    if cid is not None and emp.company_id != cid:
+        abort(403)
     if current_user.has_permission('view_reports'):
         return
     if not current_user.employee_id or int(current_user.employee_id) != int(employee_id):
@@ -87,7 +102,13 @@ def _p9_require_own_employee(employee_id: int) -> None:
 @permission_required('view_reports')
 def employee_list():
     employees = _employee_list_query().all()
-    departments = db.session.query(Department).order_by(Department.name).all()
+    cid = require_company_id()
+    departments = (
+        db.session.query(Department)
+        .filter(Department.company_id == cid)
+        .order_by(Department.name)
+        .all()
+    )
     return render_template(
         'reports/employee_list.html',
         employees=employees,
@@ -153,6 +174,191 @@ def payroll_summary():
     return render_template('reports/payroll_summary.html')
 
 
+def _executive_summary_payload(company_id: int):
+    """Aggregate executive metrics for exportable summary documents."""
+    active_employees = (
+        db.session.query(func.count(Employee.id))
+        .filter(Employee.company_id == company_id, Employee.status == 'active')
+        .scalar()
+        or 0
+    )
+    today = date.today()
+    month_start = date(today.year, today.month, 1)
+    pending_leave = (
+        db.session.query(func.count(LeaveRequest.id))
+        .join(Employee, LeaveRequest.employee_id == Employee.id)
+        .filter(LeaveRequest.status == 'pending', Employee.company_id == company_id)
+        .scalar()
+        or 0
+    )
+    pending_overtime = (
+        db.session.query(func.count(OvertimeRequest.id))
+        .filter(OvertimeRequest.company_id == company_id, OvertimeRequest.status == 'pending')
+        .scalar()
+        or 0
+    )
+    new_hires = (
+        db.session.query(func.count(Employee.id))
+        .filter(Employee.company_id == company_id, Employee.hire_date >= month_start)
+        .scalar()
+        or 0
+    )
+    exits = (
+        db.session.query(func.count(Employee.id))
+        .filter(
+            Employee.company_id == company_id,
+            Employee.termination_date.isnot(None),
+            Employee.termination_date >= month_start,
+        )
+        .scalar()
+        or 0
+    )
+    latest_run = (
+        db.session.query(PayrollRun)
+        .filter(PayrollRun.company_id == company_id, PayrollRun.status.in_(('approved', 'paid')))
+        .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc(), PayrollRun.id.desc())
+        .first()
+    )
+    latest = {
+        'period': 'N/A',
+        'employees_paid': 0,
+        'gross_paid': Decimal('0.00'),
+        'net_paid': Decimal('0.00'),
+    }
+    if latest_run:
+        gross, net, paid = (
+            db.session.query(
+                func.coalesce(func.sum(PayrollItem.gross_pay), 0),
+                func.coalesce(func.sum(PayrollItem.net_pay), 0),
+                func.count(PayrollItem.id),
+            )
+            .filter(PayrollItem.payroll_run_id == latest_run.id)
+            .one()
+        )
+        latest = {
+            'period': f'{latest_run.pay_month}/{latest_run.pay_year}',
+            'employees_paid': int(paid or 0),
+            'gross_paid': Decimal(str(gross or 0)).quantize(Decimal('0.01')),
+            'net_paid': Decimal(str(net or 0)).quantize(Decimal('0.01')),
+        }
+    return {
+        'generated_at': datetime.now(),
+        'active_employees': active_employees,
+        'pending_leave': pending_leave,
+        'pending_overtime': pending_overtime,
+        'new_hires_this_month': new_hires,
+        'exits_this_month': exits,
+        'latest_payroll': latest,
+    }
+
+
+@reports_bp.route('/executive-summary')
+@login_required
+@permission_required('view_reports')
+def executive_summary():
+    cid = require_company_id()
+    employer_name, employer_pin = _get_employer_name_pin(cid, default_name='Company', default_pin='—')
+    summary = _executive_summary_payload(cid)
+    return render_template(
+        'reports/executive_summary.html',
+        summary=summary,
+        employer_name=employer_name,
+        employer_pin=employer_pin,
+    )
+
+
+@reports_bp.route('/executive-summary/csv')
+@login_required
+@permission_required('view_reports')
+def executive_summary_csv():
+    cid = require_company_id()
+    employer_name, employer_pin = _get_employer_name_pin(cid, default_name='Company', default_pin='—')
+    s = _executive_summary_payload(cid)
+    si = StringIO()
+    w = csv.writer(si)
+    w.writerow(['metric', 'value'])
+    w.writerow(['generated_at', s['generated_at'].isoformat(timespec='seconds')])
+    w.writerow(['company_name', employer_name])
+    w.writerow(['company_kra_pin', employer_pin])
+    w.writerow(['active_employees', s['active_employees']])
+    w.writerow(['pending_leave_approvals', s['pending_leave']])
+    w.writerow(['pending_overtime_approvals', s['pending_overtime']])
+    w.writerow(['new_hires_this_month', s['new_hires_this_month']])
+    w.writerow(['exits_this_month', s['exits_this_month']])
+    w.writerow(['latest_payroll_period', s['latest_payroll']['period']])
+    w.writerow(['latest_payroll_employees_paid', s['latest_payroll']['employees_paid']])
+    w.writerow(['latest_payroll_gross_paid', str(s['latest_payroll']['gross_paid'])])
+    w.writerow(['latest_payroll_net_paid', str(s['latest_payroll']['net_paid'])])
+    out = BytesIO()
+    out.write(si.getvalue().encode('utf-8-sig'))
+    out.seek(0)
+    return send_file(
+        out,
+        as_attachment=True,
+        download_name='executive-summary.csv',
+        mimetype='text/csv; charset=utf-8',
+    )
+
+
+@reports_bp.route('/executive-summary/pdf')
+@login_required
+@permission_required('view_reports')
+def executive_summary_pdf():
+    cid = require_company_id()
+    employer_name, employer_pin = _get_employer_name_pin(cid, default_name='Company', default_pin='—')
+    s = _executive_summary_payload(cid)
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=PDF_MARGIN,
+        rightMargin=PDF_MARGIN,
+        topMargin=18,
+        bottomMargin=18,
+    )
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph('Executive Summary Report', styles['Title']),
+        Paragraph(f'Company: {_xml_escape(employer_name)}', styles['Normal']),
+        Paragraph(f'KRA PIN: {_xml_escape(employer_pin)}', styles['Normal']),
+        Paragraph(f'Generated: {_xml_escape(s["generated_at"].strftime("%d/%m/%Y %H:%M"))}', styles['Normal']),
+        Spacer(1, 12),
+    ]
+    table_data = [
+        ['Metric', 'Value'],
+        ['Active employees', str(s['active_employees'])],
+        ['Pending leave approvals', str(s['pending_leave'])],
+        ['Pending overtime approvals', str(s['pending_overtime'])],
+        ['New hires this month', str(s['new_hires_this_month'])],
+        ['Exits this month', str(s['exits_this_month'])],
+        ['Latest payroll period', s['latest_payroll']['period']],
+        ['Employees paid (latest payroll)', str(s['latest_payroll']['employees_paid'])],
+        ['Gross paid (latest payroll)', f"{s['latest_payroll']['gross_paid']:,.2f}"],
+        ['Net paid (latest payroll)', f"{s['latest_payroll']['net_paid']:,.2f}"],
+    ]
+    t = Table(table_data, repeatRows=1, colWidths=[doc.width * 0.65, doc.width * 0.35], hAlign='LEFT')
+    t.setStyle(
+        TableStyle(
+            [
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e9ecef')),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f8f9fa')),
+            ]
+        )
+    )
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name='executive-summary.pdf',
+        mimetype='application/pdf',
+    )
+
+
 def _build_nssf_rows(run_id: int):
     """Return NSSF per-employee rows and totals for one approved run."""
     rows = (
@@ -206,9 +412,10 @@ def _build_nssf_rows(run_id: int):
 @login_required
 @permission_required('view_reports')
 def nssf_report():
+    cid = require_company_id()
     runs = (
         db.session.query(PayrollRun)
-        .filter(PayrollRun.status == 'approved')
+        .filter(PayrollRun.status == 'approved', PayrollRun.company_id == cid)
         .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc())
         .all()
     )
@@ -220,7 +427,7 @@ def nssf_report():
     grand_total = Decimal('0.00')
     if selected_run_id:
         selected_run = db.session.get(PayrollRun, selected_run_id)
-        if selected_run and selected_run.status == 'approved':
+        if selected_run and selected_run.status == 'approved' and selected_run.company_id == cid:
             rows, total_employee, total_employer, grand_total = _build_nssf_rows(selected_run_id)
         else:
             selected_run = None
@@ -241,7 +448,8 @@ def nssf_report():
 def nssf_report_pdf():
     run_id = request.args.get('run_id', type=int)
     run_obj = db.session.get(PayrollRun, run_id) if run_id else None
-    if not run_obj or run_obj.status != 'approved':
+    cid = require_company_id()
+    if not run_obj or run_obj.status != 'approved' or run_obj.company_id != cid:
         from flask import abort
         abort(400)
 
@@ -333,9 +541,10 @@ def _build_paye_rows(run_id: int):
 @login_required
 @permission_required('view_reports')
 def paye_report():
+    cid = require_company_id()
     runs = (
         db.session.query(PayrollRun)
-        .filter(PayrollRun.status == 'approved')
+        .filter(PayrollRun.status == 'approved', PayrollRun.company_id == cid)
         .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc())
         .all()
     )
@@ -345,7 +554,7 @@ def paye_report():
     total = Decimal('0.00')
     if selected_run_id:
         selected_run = db.session.get(PayrollRun, selected_run_id)
-        if selected_run and selected_run.status == 'approved':
+        if selected_run and selected_run.status == 'approved' and selected_run.company_id == cid:
             rows, total = _build_paye_rows(selected_run_id)
         else:
             selected_run = None
@@ -364,7 +573,8 @@ def paye_report():
 def paye_report_pdf():
     run_id = request.args.get('run_id', type=int)
     run_obj = db.session.get(PayrollRun, run_id) if run_id else None
-    if not run_obj or run_obj.status != 'approved':
+    cid = require_company_id()
+    if not run_obj or run_obj.status != 'approved' or run_obj.company_id != cid:
         from flask import abort
         abort(400)
 
@@ -448,9 +658,10 @@ def _build_sha_rows(run_id: int):
 @login_required
 @permission_required('view_reports')
 def sha_report():
+    cid = require_company_id()
     runs = (
         db.session.query(PayrollRun)
-        .filter(PayrollRun.status == 'approved')
+        .filter(PayrollRun.status == 'approved', PayrollRun.company_id == cid)
         .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc())
         .all()
     )
@@ -460,7 +671,7 @@ def sha_report():
     total = Decimal('0.00')
     if selected_run_id:
         selected_run = db.session.get(PayrollRun, selected_run_id)
-        if selected_run and selected_run.status == 'approved':
+        if selected_run and selected_run.status == 'approved' and selected_run.company_id == cid:
             rows, total = _build_sha_rows(selected_run_id)
         else:
             selected_run = None
@@ -479,7 +690,8 @@ def sha_report():
 def sha_report_pdf():
     run_id = request.args.get('run_id', type=int)
     run_obj = db.session.get(PayrollRun, run_id) if run_id else None
-    if not run_obj or run_obj.status != 'approved':
+    cid = require_company_id()
+    if not run_obj or run_obj.status != 'approved' or run_obj.company_id != cid:
         from flask import abort
         abort(400)
 
@@ -579,9 +791,10 @@ def _build_housing_levy_rows(run_id: int):
 @login_required
 @permission_required('view_reports')
 def housing_levy_report():
+    cid = require_company_id()
     runs = (
         db.session.query(PayrollRun)
-        .filter(PayrollRun.status == 'approved')
+        .filter(PayrollRun.status == 'approved', PayrollRun.company_id == cid)
         .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc())
         .all()
     )
@@ -593,7 +806,7 @@ def housing_levy_report():
     grand_total = Decimal('0.00')
     if selected_run_id:
         selected_run = db.session.get(PayrollRun, selected_run_id)
-        if selected_run and selected_run.status == 'approved':
+        if selected_run and selected_run.status == 'approved' and selected_run.company_id == cid:
             rows, total_employee, total_employer, grand_total = _build_housing_levy_rows(selected_run_id)
         else:
             selected_run = None
@@ -614,7 +827,8 @@ def housing_levy_report():
 def housing_levy_report_pdf():
     run_id = request.args.get('run_id', type=int)
     run_obj = db.session.get(PayrollRun, run_id) if run_id else None
-    if not run_obj or run_obj.status != 'approved':
+    cid = require_company_id()
+    if not run_obj or run_obj.status != 'approved' or run_obj.company_id != cid:
         from flask import abort
         abort(400)
 
@@ -676,13 +890,14 @@ def housing_levy_report_pdf():
 @login_required
 def p9_report():
     """P9-style annual PAYE (calendar year) from approved payroll runs."""
+    cid = require_company_id()
     can_view_all = current_user.has_permission('view_reports')
     if _p9_access_own_only() and not current_user.employee_id:
         abort(403)
     year_list = [
         r[0]
         for r in db.session.query(PayrollRun.pay_year)
-        .filter(PayrollRun.status == 'approved')
+        .filter(PayrollRun.status == 'approved', PayrollRun.company_id == cid)
         .distinct()
         .order_by(PayrollRun.pay_year.desc())
         .all()
@@ -692,22 +907,23 @@ def p9_report():
     if can_view_all:
         employees = (
             db.session.query(Employee)
-            .filter(Employee.status == 'active')
+            .filter(Employee.status == 'active', Employee.company_id == cid)
             .order_by(Employee.first_name, Employee.last_name)
             .all()
         )
     else:
         own = db.session.get(Employee, current_user.employee_id)
-        employees = [own] if own else []
+        employees = [own] if own and own.company_id == cid else []
     selected_year = request.args.get('year', type=int)
     selected_employee_id = request.args.get('employee_id', type=int)
     if not can_view_all:
         selected_employee_id = current_user.employee_id
     preview = None
     if selected_year and selected_employee_id:
-        preview = row_for_employee(selected_year, selected_employee_id)
-    employer = db.session.query(Employer).order_by(Employer.id.asc()).first()
+        preview = row_for_employee(selected_year, selected_employee_id, cid)
+    employer = db.session.query(Employer).filter(Employer.company_id == cid).first()
     employer_display_name, employer_display_pin = _get_employer_name_pin(
+        cid,
         default_name='—',
         default_pin='—',
     )
@@ -733,12 +949,13 @@ def p9_pdf():
     employee_id = request.args.get('employee_id', type=int)
     if not year or not employee_id:
         abort(400)
-    _p9_require_own_employee(employee_id)
-    data = row_for_employee(year, employee_id)
+    _p9_require_employee_access(employee_id)
+    cid = require_company_id()
+    data = row_for_employee(year, employee_id, cid)
     if not data:
         abort(404)
     emp = data['employee']
-    employer_name, employer_pin = _get_employer_name_pin(default_name='Employer', default_pin='—')
+    employer_name, employer_pin = _get_employer_name_pin(cid, default_name='Employer', default_pin='—')
 
     emp_name = emp.full_name if emp else f'Employee #{employee_id}'
     emp_pin = (emp.kra_pin or '—').strip() if emp else '—'
@@ -882,14 +1099,16 @@ def p9_csv():
     employee_id = request.args.get('employee_id', type=int)
     if not year:
         abort(400)
+    cid = require_company_id()
     if _p9_access_own_only():
         if not current_user.employee_id:
             abort(403)
         employee_id = current_user.employee_id
-    rows = rows_for_csv(year)
+    rows = rows_for_csv(year, cid)
     if employee_id:
+        _p9_require_employee_access(employee_id)
         rows = [r for r in rows if r['employee_id'] == employee_id]
-    employer_name, employer_pin = _get_employer_name_pin(default_name='', default_pin='')
+    employer_name, employer_pin = _get_employer_name_pin(cid, default_name='', default_pin='')
     si = StringIO()
     w = csv.writer(si)
     header = [

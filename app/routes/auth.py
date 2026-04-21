@@ -4,8 +4,11 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, current_user, login_required
 from app.extensions import db, limiter
 from app.models.user import User, Role, UserRole
+from app.models.company import Company, Branch
+from app.models.employer import Employer
 from app.forms.auth_forms import LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm
 from app.services.audit_service import log_login, log_audit
+from app.services.company_bootstrap import bootstrap_company_defaults
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -69,8 +72,19 @@ def register():
         if db.session.query(User).filter_by(email=email).first():
             flash('An account with that email already exists.', 'danger')
             return render_template('auth/register.html', form=form)
+        org_name = (form.organization_name.data or '').strip()
+        cc_raw = (form.country_code.data or 'KE').strip().upper()
+        cc = cc_raw[:2] if len(cc_raw) >= 2 else 'KE'
+        company = Company(name=org_name or 'Organization', is_active=True)
+        db.session.add(company)
+        db.session.flush()
+        db.session.add(
+            Branch(company_id=company.id, name='Head Office', country_code=cc),
+        )
+        db.session.add(Employer(company_id=company.id, name=org_name or 'Organization'))
         user = User(
             email=email,
+            company_id=company.id,
             is_superuser=True,
             is_active=True,
         )
@@ -82,6 +96,7 @@ def register():
         if admin_role:
             db.session.add(UserRole(user_id=user.id, role_id=admin_role.id))
         db.session.commit()
+        bootstrap_company_defaults(company.id, cc)
         flash('Account created. You can now sign in.', 'success')
         return redirect(url_for('auth.login'))
     return render_template('auth/register.html', form=form)

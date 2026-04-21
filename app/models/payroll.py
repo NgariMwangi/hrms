@@ -9,9 +9,12 @@ from app.models.base import BaseModel
 class Allowance(BaseModel):
     """Company-wide allowance types (House, Transport, Meal, etc.)."""
     __tablename__ = 'allowances'
-    __table_args__ = (db.Index('ix_allowances_code', 'code'),)
+    __table_args__ = (db.UniqueConstraint('company_id', 'code', name='uq_allowances_company_code'),)
 
-    code = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company = db.relationship('Company', backref='allowances')
+
+    code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.String(500), nullable=True)
     is_taxable = db.Column(db.Boolean, default=True, nullable=False)
@@ -55,9 +58,12 @@ class Deduction(BaseModel):
     """Company-wide deduction types (loan, SACCO, court order, etc.)."""
 
     __tablename__ = 'deductions'
-    __table_args__ = (db.Index('ix_deductions_code', 'code'),)
+    __table_args__ = (db.UniqueConstraint('company_id', 'code', name='uq_deductions_company_code'),)
 
-    code = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company = db.relationship('Company', backref='deduction_types')
+
+    code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.String(500), nullable=True)
 
@@ -116,18 +122,26 @@ class PayrollRun(BaseModel):
     """A single payroll run for a month/year."""
     __tablename__ = 'payroll_runs'
     __table_args__ = (
-        db.UniqueConstraint('pay_month', 'pay_year', name='uq_payroll_run_month_year'),
+        db.UniqueConstraint('company_id', 'country_code', 'pay_month', 'pay_year', name='uq_payroll_run_company_country_month_year'),
         db.Index('ix_payroll_runs_status', 'status'),
-        db.Index('ix_payroll_runs_pay_month_year', 'pay_month', 'pay_year'),
+        db.Index('ix_payroll_runs_company_country_pay_month_year', 'company_id', 'country_code', 'pay_month', 'pay_year'),
     )
+
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company = db.relationship('Company', backref='payroll_runs')
+    country_code = db.Column(db.String(2), nullable=False, default='KE')
 
     pay_month = db.Column(db.Integer, nullable=False)  # 1-12
     pay_year = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.String(30), default='draft', nullable=False)  # draft, submitted, approved, paid
+    status = db.Column(db.String(30), default='draft', nullable=False)  # draft, submitted, approved, finance_reviewed, paid
     processed_at = db.Column(db.DateTime, nullable=True)
     approved_by_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
+    finance_reviewed_by_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    finance_reviewed_at = db.Column(db.DateTime, nullable=True)
+    paid_by_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     paid_at = db.Column(db.DateTime, nullable=True)
+    payment_reference = db.Column(db.String(120), nullable=True)
     notes = db.Column(db.Text, nullable=True)
 
     items = db.relationship('PayrollItem', backref='payroll_run', lazy='dynamic', cascade='all, delete-orphan')
@@ -155,6 +169,24 @@ class PayrollRunManualDeduction(BaseModel):
     notes = db.Column(db.Text, nullable=True)
 
     employee = db.relationship('Employee', backref='payroll_manual_deductions')
+
+
+class PayrollRunExclusion(BaseModel):
+    """Employees explicitly excluded from a specific draft payroll run."""
+
+    __tablename__ = 'payroll_run_exclusions'
+    __table_args__ = (
+        db.UniqueConstraint('payroll_run_id', 'employee_id', name='uq_payroll_run_exclusion_run_employee'),
+        db.Index('ix_payroll_exclusions_run', 'payroll_run_id'),
+        db.Index('ix_payroll_exclusions_employee', 'employee_id'),
+    )
+
+    payroll_run_id = db.Column(db.Integer, db.ForeignKey('payroll_runs.id', ondelete='CASCADE'), nullable=False)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
+    reason = db.Column(db.String(255), nullable=True)
+
+    payroll_run = db.relationship('PayrollRun', backref='excluded_employees')
+    employee = db.relationship('Employee', backref='payroll_run_exclusions')
 
 
 class PayrollItem(BaseModel):

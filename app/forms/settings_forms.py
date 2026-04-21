@@ -1,11 +1,12 @@
 """System and statutory settings forms."""
 from flask_wtf import FlaskForm
-from wtforms import StringField, FloatField, DateField, SubmitField, SelectField, IntegerField, TextAreaField
-from wtforms.validators import DataRequired, InputRequired, Optional, NumberRange, Email
+from wtforms import StringField, FloatField, DateField, SubmitField, SelectField, IntegerField, TextAreaField, PasswordField
+from wtforms.validators import DataRequired, InputRequired, Optional, NumberRange, Email, Length, EqualTo
 
 
 class StatutoryRateForm(FlaskForm):
     """Add/edit statutory rate (e.g. SHIF %, Housing Levy %)."""
+    country_code = StringField('Country (ISO2)', default='KE', validators=[DataRequired(), Length(min=2, max=2)])
     code = StringField('Code', validators=[DataRequired()])
     effective_from = DateField('Effective From', validators=[DataRequired()])
     effective_to = DateField('Effective To', validators=[Optional()])
@@ -16,13 +17,58 @@ class StatutoryRateForm(FlaskForm):
 
 class PayeBracketForm(FlaskForm):
     """PAYE tax bracket."""
+    country_code = StringField('Country (ISO2)', default='KE', validators=[DataRequired(), Length(min=2, max=2)])
     effective_from = DateField('Effective From', validators=[DataRequired()])
     effective_to = DateField('Effective To', validators=[Optional()])
     bracket_order = IntegerField('Order', validators=[InputRequired(), NumberRange(min=1, max=50)])
-    min_amount = FloatField('Min Taxable (KES)', validators=[InputRequired()])
-    max_amount = FloatField('Max Taxable (KES)', validators=[Optional()])
+    min_amount = FloatField('Min taxable income', validators=[InputRequired()])
+    max_amount = FloatField('Max taxable income', validators=[Optional()])
     rate_percent = FloatField('Rate (%)', validators=[InputRequired()])
     submit = SubmitField('Save')
+
+
+class NssfTierForm(FlaskForm):
+    """NSSF tier configuration."""
+    country_code = StringField('Country (ISO2)', default='KE', validators=[DataRequired(), Length(min=2, max=2)])
+    effective_from = DateField('Effective From', validators=[DataRequired()])
+    effective_to = DateField('Effective To', validators=[Optional()])
+    tier_number = IntegerField('Tier number', validators=[InputRequired(), NumberRange(min=1, max=20)])
+    pensionable_min = FloatField('Pensionable min', validators=[InputRequired(), NumberRange(min=0)])
+    pensionable_max = FloatField('Pensionable max', validators=[Optional(), NumberRange(min=0)])
+    employee_percent = FloatField('Employee %', validators=[InputRequired(), NumberRange(min=0)])
+    employer_percent = FloatField('Employer %', validators=[InputRequired(), NumberRange(min=0)])
+    employee_max_amount = FloatField('Employee max amount', validators=[Optional(), NumberRange(min=0)])
+    employer_max_amount = FloatField('Employer max amount', validators=[Optional(), NumberRange(min=0)])
+    submit = SubmitField('Save')
+
+
+class CreateOrganizationForm(FlaskForm):
+    """Superuser-only: add another tenant (company) and its first admin user."""
+
+    company_name = StringField('Company name', validators=[DataRequired(), Length(min=1, max=200)])
+    branch_name = StringField(
+        'First branch name',
+        validators=[Optional(), Length(max=200)],
+        default='Head Office',
+    )
+    country_code = StringField(
+        'Primary country (ISO2)',
+        default='KE',
+        validators=[DataRequired(), Length(min=2, max=2)],
+    )
+    admin_email = StringField('Administrator email', validators=[DataRequired(), Email()])
+    admin_password = PasswordField(
+        'Administrator password',
+        validators=[
+            DataRequired(),
+            Length(min=8, message='Password must be at least 8 characters'),
+        ],
+    )
+    admin_password_confirm = PasswordField(
+        'Confirm password',
+        validators=[DataRequired(), EqualTo('admin_password', message='Passwords must match')],
+    )
+    submit = SubmitField('Create company')
 
 
 class EmployerForm(FlaskForm):

@@ -5,6 +5,68 @@
     <h1 class="h3 mb-1">Dashboard</h1>
     <p class="text-muted small mb-0">Overview and quick links</p>
 </div>
+{% if executive_summary %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h6 mb-0">Company operating summary</h2>
+            {% if executive_summary.payroll_totals.period %}
+            <span class="badge text-bg-light">Latest payroll: {{ executive_summary.payroll_totals.period }}</span>
+            {% endif %}
+        </div>
+        <div class="row g-3">
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Active employees</div>
+                    <div class="h5 mb-0">{{ executive_summary.active_employees }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Employees paid (latest run)</div>
+                    <div class="h5 mb-0">{{ executive_summary.payroll_totals.employees_paid }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Gross paid (latest run)</div>
+                    <div class="h6 mb-0">{{ executive_summary.payroll_totals.gross|fmt_money(currency) }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Net paid (latest run)</div>
+                    <div class="h6 mb-0">{{ executive_summary.payroll_totals.net|fmt_money(currency) }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Pending leave approvals</div>
+                    <div class="h5 mb-0">{{ executive_summary.pending_leave }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Pending overtime approvals</div>
+                    <div class="h5 mb-0">{{ executive_summary.pending_overtime }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">New hires this month</div>
+                    <div class="h5 mb-0">{{ executive_summary.new_hires_this_month }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-muted">Exits this month</div>
+                    <div class="h5 mb-0">{{ executive_summary.exits_this_month }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 <div class="row g-4">
     <div class="col-sm-6 col-xl-4">
         <div class="card stat-card stat-primary h-100 border-0">
@@ -27,6 +89,20 @@
                 </div>
                 <p class="stat-value mb-3">{{ pending_leave }}</p>
                 <a href="{{ url_for('leave.index') }}" class="btn btn-sm btn-outline-primary align-self-start rounded-3">Review</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if pending_overtime is defined and pending_overtime > 0 %}
+    <div class="col-sm-6 col-xl-4">
+        <div class="card stat-card stat-warning h-100 border-0">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:0.06em;">Pending overtime</span>
+                    <span class="stat-icon"><i class="bi bi-clock-history"></i></span>
+                </div>
+                <p class="stat-value mb-3">{{ pending_overtime }}</p>
+                <a href="{{ url_for('overtime.index') }}" class="btn btn-sm btn-outline-primary align-self-start rounded-3">Review</a>
             </div>
         </div>
     </div>

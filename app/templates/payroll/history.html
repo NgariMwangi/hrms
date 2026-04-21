@@ -2,15 +2,23 @@
 {% block title %}Payroll - {{ app_name }}{% endblock %}
 {% block content %}
 <h1 class="h3 mb-4">Payroll History</h1>
+<ul class="nav nav-tabs mb-3 flex-wrap">
+    {% for c in countries_nav %}
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if c == selected_country else '' }}" href="{{ url_for('payroll.index', country_code=c) }}">{{ c }}</a>
+    </li>
+    {% endfor %}
+</ul>
 {% if has_permission('process_payroll') %}
-<a href="{{ url_for('payroll.run') }}" class="btn btn-primary mb-3">New Payroll Run</a>
+<a href="{{ url_for('payroll.run', country_code=selected_country) }}" class="btn btn-primary mb-3">New Payroll Run</a>
 {% endif %}
 <div class="table-responsive">
     <table class="table">
-        <thead><tr><th>Month/Year</th><th>Status</th><th>Processed</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Country</th><th>Month/Year</th><th>Status</th><th>Processed</th><th>Actions</th></tr></thead>
         <tbody>
         {% for r in runs %}
         <tr>
+            <td>{{ r.country_code or 'KE' }}</td>
             <td>{{ r.pay_month }}/{{ r.pay_year }}</td>
             <td><span class="badge bg-{{ 'secondary' if r.status == 'draft' else 'info' if r.status == 'approved' else 'success' }}">{{ r.status }}</span></td>
             <td>{{ r.processed_at.strftime('%d %b %Y %H:%M') if r.processed_at else '-' }}</td>
@@ -25,7 +33,7 @@
             </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="text-muted">No payroll runs yet.</td></tr>
+        <tr><td colspan="5" class="text-muted">No payroll runs yet for {{ selected_country }}.</td></tr>
         {% endfor %}
         </tbody>
     </table>

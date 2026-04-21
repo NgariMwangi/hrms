@@ -1,11 +1,60 @@
 {% extends "layouts/base.html" %}
 {% block title %}Calculate Payroll - {{ app_name }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4">Calculate Payroll: {{ run.pay_month }}/{{ run.pay_year }}</h1>
+<h1 class="h3 mb-4">Calculate Payroll: {{ run_country_code }} {{ run.pay_month }}/{{ run.pay_year }}</h1>
 <div class="card mb-3">
     <div class="card-body">
+        <p class="mb-1"><strong>Country:</strong> {{ run_country_code }} ({{ run_currency }})</p>
         <p class="mb-1"><strong>Active employees:</strong> {{ employees|length }}</p>
         <p class="mb-0"><strong>Eligible for payroll (salary set for this period):</strong> {{ eligible_count }}</p>
+        <p class="mb-0"><strong>Excluded from this run:</strong> {{ excluded_count }}</p>
+        <p class="mb-0"><strong>Will be processed on calculate:</strong> {{ included_count }}</p>
+        <p class="mb-0 mt-2 small text-muted">
+            <strong>Overtime:</strong> approved overtime requests for this payroll month and year are included automatically
+            (earnings code <code>OVERTIME</code>), using (gross before overtime × 12 ÷ 365) per day.
+        </p>
+    </div>
+</div>
+<div class="card mb-3">
+    <div class="card-header">Exclude employees from this payroll run</div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('payroll.run_calculate', id=run.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="action" value="save_exclusions"/>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr><th style="width: 56px;">Exclude</th><th>Employee</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for e in employees %}
+                        {% set has_salary = e.id not in missing_salary_ids %}
+                        <tr>
+                            <td>
+                                {% if has_salary %}
+                                <input
+                                    type="checkbox"
+                                    name="excluded_employee_ids"
+                                    value="{{ e.id }}"
+                                    {% if e.id in excluded_employee_ids %}checked{% endif %}
+                                />
+                                {% endif %}
+                            </td>
+                            <td>{{ e.employee_number }} - {{ e.full_name }}</td>
+                            <td>
+                                {% if has_salary %}
+                                    <span class="badge text-bg-light">Eligible</span>
+                                {% else %}
+                                    <span class="badge text-bg-secondary">Missing salary</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-outline-secondary">Save exclusions</button>
+        </form>
     </div>
 </div>
 <form method="post" action="{{ url_for('payroll.run_calculate', id=run.id) }}">

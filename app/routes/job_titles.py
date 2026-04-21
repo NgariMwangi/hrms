@@ -5,6 +5,7 @@ from app.extensions import db
 from app.models.job_title import JobTitle
 from app.forms.job_title_forms import JobTitleForm
 from app.decorators.permissions import permission_required
+from app.utils.tenant import require_company_id
 
 job_titles_bp = Blueprint('job_titles', __name__)
 
@@ -13,7 +14,12 @@ job_titles_bp = Blueprint('job_titles', __name__)
 @login_required
 @permission_required('view_departments')
 def index():
-    job_titles = db.session.query(JobTitle).order_by(JobTitle.name).all()
+    job_titles = (
+        db.session.query(JobTitle)
+        .filter(JobTitle.company_id == require_company_id())
+        .order_by(JobTitle.name)
+        .all()
+    )
     return render_template('job_titles/index.html', job_titles=job_titles)
 
 
@@ -23,12 +29,15 @@ def index():
 def create():
     form = JobTitleForm()
     if form.validate_on_submit():
-        existing = db.session.query(JobTitle).filter_by(code=form.code.data.strip().upper()).first()
+        cid = require_company_id()
+        code = form.code.data.strip().upper()
+        existing = db.session.query(JobTitle).filter(JobTitle.company_id == cid, JobTitle.code == code).first()
         if existing:
             flash('A job title with this code already exists.', 'danger')
             return render_template('job_titles/create.html', form=form)
         jt = JobTitle(
-            code=form.code.data.strip().upper(),
+            company_id=cid,
+            code=code,
             name=form.name.data.strip(),
             description=form.description.data.strip() or None,
             grade=form.grade.data.strip() or None,
@@ -45,7 +54,7 @@ def create():
 @permission_required('view_departments')
 def view(id):
     jt = db.session.get(JobTitle, id)
-    if jt is None:
+    if jt is None or jt.company_id != require_company_id():
         flash('Job title not found.', 'danger')
         return redirect(url_for('job_titles.index'))
     employee_count = len(jt.employees) if jt.employees else 0
@@ -57,15 +66,20 @@ def view(id):
 @permission_required('manage_departments')
 def edit(id):
     jt = db.session.get(JobTitle, id)
-    if jt is None:
+    if jt is None or jt.company_id != require_company_id():
         flash('Job title not found.', 'danger')
         return redirect(url_for('job_titles.index'))
     form = JobTitleForm()
     if form.validate_on_submit():
-        existing = db.session.query(JobTitle).filter(
-            JobTitle.code == form.code.data.strip().upper(),
-            JobTitle.id != id,
-        ).first()
+        existing = (
+            db.session.query(JobTitle)
+            .filter(
+                JobTitle.company_id == jt.company_id,
+                JobTitle.code == form.code.data.strip().upper(),
+                JobTitle.id != id,
+            )
+            .first()
+        )
         if existing:
             flash('A job title with this code already exists.', 'danger')
             return render_template('job_titles/edit.html', form=form, job_title=jt)
@@ -89,7 +103,7 @@ def edit(id):
 @permission_required('manage_departments')
 def delete(id):
     jt = db.session.get(JobTitle, id)
-    if jt is None:
+    if jt is None or jt.company_id != require_company_id():
         flash('Job title not found.', 'danger')
         return redirect(url_for('job_titles.index'))
     employee_count = len(jt.employees) if jt.employees else 0

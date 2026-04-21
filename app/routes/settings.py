@@ -1,14 +1,17 @@
 """System configuration, user management, and audit log viewer."""
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
+from flask_login import login_required, current_user
 from app.extensions import db
 from app.models.audit import AuditLog
 from app.models.user import User, Role, UserRole
 from app.models.employee import Employee
 from app.models.employer import Employer
+from app.models.company import Company, Branch
 from app.forms.user_forms import UserForm
-from app.forms.settings_forms import EmployerForm
+from app.forms.settings_forms import EmployerForm, CreateOrganizationForm
 from app.decorators.permissions import permission_required
+from app.utils.tenant import require_company_id
+from app.services.company_bootstrap import bootstrap_company_defaults
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -24,12 +27,18 @@ def index():
 @login_required
 @permission_required('manage_settings')
 def users():
-    users_q = db.session.query(User).order_by(User.email).all()
+    cid = require_company_id()
+    users_q = db.session.query(User).filter(User.company_id == cid).order_by(User.email).all()
     return render_template('settings/users.html', users=users_q)
 
 
-def _populate_user_form_choices(form: UserForm):
-    employees = db.session.query(Employee).order_by(Employee.first_name, Employee.last_name).all()
+def _populate_user_form_choices(form: UserForm, company_id: int):
+    employees = (
+        db.session.query(Employee)
+        .filter(Employee.company_id == company_id)
+        .order_by(Employee.first_name, Employee.last_name)
+        .all()
+    )
     # 0 means "no employee link"
     form.employee_id.choices = [(0, '-- None --')] + [(e.id, f"{e.employee_number} - {e.full_name}") for e in employees]
     roles = db.session.query(Role).order_by(Role.name).all()
@@ -42,8 +51,9 @@ def _populate_user_form_choices(form: UserForm):
 def user_create():
     from flask import current_app
 
+    cid = require_company_id()
     form = UserForm()
-    _populate_user_form_choices(form)
+    _populate_user_form_choices(form, cid)
     if form.validate_on_submit():
         email = form.email.data.strip().lower()
         if db.session.query(User).filter_by(email=email).first():
@@ -55,13 +65,19 @@ def user_create():
         if len(form.password.data) < current_app.config.get('PASSWORD_MIN_LENGTH', 8):
             flash(f"Password must be at least {current_app.config.get('PASSWORD_MIN_LENGTH', 8)} characters.", 'danger')
             return render_template('settings/user_form.html', form=form, user=None)
+        employee_id = form.employee_id.data or 0
+        if employee_id:
+            link_emp = db.session.get(Employee, employee_id)
+            if not link_emp or link_emp.company_id != cid:
+                flash('Invalid employee selected for this organization.', 'danger')
+                return render_template('settings/user_form.html', form=form, user=None)
         user = User(
             email=email,
+            company_id=cid,
             is_active=form.is_active.data,
             is_superuser=form.is_superuser.data,
         )
         user.set_password(form.password.data)
-        employee_id = form.employee_id.data or 0
         user.employee_id = employee_id or None
         db.session.add(user)
         db.session.flush()
@@ -83,12 +99,13 @@ def user_create():
 def user_edit(user_id):
     from flask import current_app
 
+    cid = require_company_id()
     user = db.session.get(User, user_id)
-    if not user:
+    if not user or user.company_id != cid:
         flash('User not found.', 'danger')
         return redirect(url_for('settings.users'))
     form = UserForm()
-    _populate_user_form_choices(form)
+    _populate_user_form_choices(form, cid)
     if form.validate_on_submit():
         email = form.email.data.strip().lower()
         existing = db.session.query(User).filter(User.email == email, User.id != user.id).first()
@@ -99,6 +116,11 @@ def user_edit(user_id):
         user.is_active = form.is_active.data
         user.is_superuser = form.is_superuser.data
         employee_id = form.employee_id.data or 0
+        if employee_id:
+            link_emp = db.session.get(Employee, employee_id)
+            if not link_emp or link_emp.company_id != cid:
+                flash('Invalid employee selected for this organization.', 'danger')
+                return render_template('settings/user_form.html', form=form, user=user)
         user.employee_id = employee_id or None
         if form.password.data:
             if len(form.password.data) < current_app.config.get('PASSWORD_MIN_LENGTH', 8):
@@ -132,8 +154,9 @@ def user_edit(user_id):
 @login_required
 @permission_required('manage_settings')
 def user_toggle_active(user_id):
+    cid = require_company_id()
     user = db.session.get(User, user_id)
-    if not user:
+    if not user or user.company_id != cid:
         flash('User not found.', 'danger')
         return redirect(url_for('settings.users'))
     user.is_active = not user.is_active
@@ -162,13 +185,13 @@ def audit_log():
 @permission_required('manage_settings')
 def employer():
     """Create/update employer (company using the system)."""
+    cid = require_company_id()
     form = EmployerForm()
-    emp = db.session.query(Employer).order_by(Employer.id.asc()).first()
+    emp = db.session.query(Employer).filter(Employer.company_id == cid).first()
 
     if form.validate_on_submit():
-        # Singleton-like behavior: keep the first row as "the employer" record.
         if not emp:
-            emp = Employer(id=1)
+            emp = Employer(company_id=cid, name='')
             db.session.add(emp)
 
         emp.name = (form.name.data or '').strip()
@@ -194,4 +217,65 @@ def employer():
         form.registration_number.data = emp.registration_number or ''
 
     return render_template('settings/employer.html', form=form, employer=emp)
+
+
+@settings_bp.route('/companies')
+@login_required
+def companies_list():
+    """List all tenant companies (platform superuser only)."""
+    if not current_user.is_superuser:
+        abort(403)
+    companies = db.session.query(Company).order_by(Company.id).all()
+    return render_template('settings/companies.html', companies=companies)
+
+
+@settings_bp.route('/companies/new', methods=['GET', 'POST'])
+@login_required
+def companies_new():
+    """Create another company + default branch + employer + first admin (platform superuser only)."""
+    from flask import current_app
+
+    if not current_user.is_superuser:
+        abort(403)
+    form = CreateOrganizationForm()
+    if form.validate_on_submit():
+        email = form.admin_email.data.strip().lower()
+        if db.session.query(User).filter_by(email=email).first():
+            flash('A user with that email already exists.', 'danger')
+            return render_template('settings/company_new.html', form=form)
+        min_len = current_app.config.get('PASSWORD_MIN_LENGTH', 8)
+        pwd = form.admin_password.data
+        if len(pwd) < min_len:
+            flash(f'Password must be at least {min_len} characters.', 'danger')
+            return render_template('settings/company_new.html', form=form)
+        name = (form.company_name.data or '').strip()
+        br_name = (form.branch_name.data or '').strip() or 'Head Office'
+        cc_raw = (form.country_code.data or 'KE').strip().upper()
+        cc = cc_raw[:2] if len(cc_raw) >= 2 else 'KE'
+        company = Company(name=name or 'Company', is_active=True)
+        db.session.add(company)
+        db.session.flush()
+        db.session.add(Branch(company_id=company.id, name=br_name, country_code=cc))
+        db.session.add(Employer(company_id=company.id, name=name or 'Company'))
+        admin = User(
+            email=email,
+            company_id=company.id,
+            is_superuser=True,
+            is_active=True,
+        )
+        admin.set_password(pwd)
+        db.session.add(admin)
+        db.session.flush()
+        admin_role = db.session.query(Role).filter_by(code='ADMIN').first()
+        if admin_role:
+            db.session.add(UserRole(user_id=admin.id, role_id=admin_role.id))
+        db.session.commit()
+        bootstrap_company_defaults(company.id, cc)
+        flash(
+            f'Company "{company.name}" was created. The administrator ({email}) is a superuser for that tenant '
+            'and can sign in immediately.',
+            'success',
+        )
+        return redirect(url_for('settings.companies_list'))
+    return render_template('settings/company_new.html', form=form)
 

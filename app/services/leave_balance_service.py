@@ -85,7 +85,7 @@ def compute_balance_snapshot(
     as_of = as_of or date.today()
     lt = db.session.get(LeaveType, leave_type_id)
     emp = db.session.get(Employee, employee_id)
-    if not lt or not emp or not leave_type_uses_balance_ledger(lt):
+    if not lt or not emp or lt.company_id != emp.company_id or not leave_type_uses_balance_ledger(lt):
         return None
     row = (
         db.session.query(LeaveBalance)
@@ -114,7 +114,8 @@ def compute_balance_snapshot(
 def ensure_balance(employee_id: int, leave_type_id: int, year: int) -> LeaveBalance | None:
     """Return existing or new LeaveBalance row for accrual/carry types; None if type inactive."""
     lt = db.session.get(LeaveType, leave_type_id)
-    if not lt or not leave_type_uses_balance_ledger(lt):
+    emp = db.session.get(Employee, employee_id)
+    if not lt or not emp or lt.company_id != emp.company_id or not leave_type_uses_balance_ledger(lt):
         return None
     row = (
         db.session.query(LeaveBalance)
@@ -147,7 +148,7 @@ def recalculate_balance(row: LeaveBalance, as_of: date | None = None) -> LeaveBa
     as_of = as_of or date.today()
     lt = row.leave_type or db.session.get(LeaveType, row.leave_type_id)
     emp = row.employee or db.session.get(Employee, row.employee_id)
-    if not lt or not emp:
+    if not lt or not emp or lt.company_id != emp.company_id:
         return row
 
     row.used = _used_days_approved_in_year(row.employee_id, row.leave_type_id, row.year)
@@ -186,6 +187,8 @@ def preview_leave_balance_for_apply(employee_id: int, leave_type_id: int, year: 
     emp = db.session.get(Employee, employee_id)
     if not emp:
         return {"error": "invalid_employee"}
+    if lt.company_id != emp.company_id:
+        return {"error": "invalid_leave_type"}
 
     today = date.today()
     if year < today.year:
@@ -246,6 +249,7 @@ def refresh_leave_balance_after_request_change(employee_id: int, leave_type_id: 
 def rollover_opening_for_next_year(
     from_year: int,
     to_year: int,
+    company_id: int,
     as_of: date | None = None,
 ) -> tuple[int, list[str]]:
     """
@@ -260,11 +264,17 @@ def rollover_opening_for_next_year(
     count = 0
     types_list = [
         lt
-        for lt in db.session.query(LeaveType).filter(LeaveType.is_active.is_(True)).all()
+        for lt in db.session.query(LeaveType)
+        .filter(LeaveType.company_id == company_id, LeaveType.is_active.is_(True))
+        .all()
         if leave_type_uses_balance_ledger(lt)
     ]
 
-    employees = db.session.query(Employee).filter(Employee.status == "active").all()
+    employees = (
+        db.session.query(Employee)
+        .filter(Employee.company_id == company_id, Employee.status == "active")
+        .all()
+    )
 
     for emp in employees:
         for lt in types_list:

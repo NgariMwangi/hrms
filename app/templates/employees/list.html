@@ -34,19 +34,20 @@
         </form>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead><tr><th>Number</th><th>Name</th><th>Department</th><th>Status</th><th>Hire Date</th><th class="text-end">Actions</th></tr></thead>
+                <thead><tr><th>Number</th><th>Name</th><th>Branch</th><th>Department</th><th>Status</th><th>Hire Date</th><th class="text-end">Actions</th></tr></thead>
                 <tbody>
                 {% for e in employees %}
                 <tr>
                     <td><span class="fw-medium">{{ e.employee_number }}</span></td>
                     <td>{{ e.full_name }}</td>
+                    <td><span class="text-nowrap">{{ e.branch.name if e.branch else '—' }}</span></td>
                     <td>{{ e.department.name if e.department else '—' }}</td>
                     <td><span class="badge bg-{{ 'success' if e.status == 'active' else 'secondary' }}">{{ e.status }}</span></td>
                     <td>{{ e.hire_date.strftime('%d %b %Y') if e.hire_date else '—' }}</td>
                     <td class="text-end"><a href="{{ url_for('employees.view', id=e.id) }}" class="btn btn-sm btn-outline-primary">View</a></td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-muted py-4 text-center">No employees found.</td></tr>
+                <tr><td colspan="7" class="text-muted py-4 text-center">No employees found.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

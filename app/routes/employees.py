@@ -6,8 +6,10 @@ import mimetypes
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, abort, send_file
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
+from sqlalchemy.orm import joinedload
 from app.extensions import db
 from app.models.employee import Employee
+from app.models.company import Branch
 from app.models.department import Department
 from app.models.job_title import JobTitle
 from app.models.payroll import EmployeeSalary, EmployeeAllowance, Allowance, EmployeeDeduction
@@ -15,6 +17,8 @@ from app.models.user import User, Role, UserRole
 from app.models.document import EmployeeDocument, DocumentCategory
 from app.forms.employee_forms import EmployeeForm, EmployeeSalaryForm
 from app.decorators.permissions import permission_required
+from app.utils.tenant import require_company_id
+from app.utils.currency import currency_for_branch
 from app.services.audit_service import log_create, log_update, model_to_audit_dict
 from app.utils.validators import normalize_phone_ke
 
@@ -29,12 +33,16 @@ except Exception:  # pragma: no cover
 employees_bp = Blueprint('employees', __name__)
 
 
-def _next_employee_number():
-    """Generate EMP-YYYY-####."""
+def _next_employee_number(company_id: int):
+    """Generate EMP-YYYY-#### (scoped per company)."""
     year = date.today().year
     prefix = f"{current_app.config.get('EMPLOYEE_NUMBER_PREFIX', 'EMP')}-{year}-"
-    last = db.session.query(Employee).filter(Employee.employee_number.startswith(prefix)).order_by(
-        Employee.id.desc()).first()
+    last = (
+        db.session.query(Employee)
+        .filter(Employee.company_id == company_id, Employee.employee_number.startswith(prefix))
+        .order_by(Employee.id.desc())
+        .first()
+    )
     num = 1
     if last:
         try:
@@ -57,10 +65,28 @@ def _next_birthday_for_year(year: int, month: int, day: int):
 @login_required
 @permission_required('view_employees')
 def list():
-    q = db.session.query(Employee)
+    cid = require_company_id()
+    director_title_ids = {
+        jt.id
+        for jt in db.session.query(JobTitle)
+        .filter(
+            JobTitle.company_id == cid,
+            db.or_(
+                JobTitle.name.ilike('%director%'),
+                JobTitle.code.ilike('%director%'),
+            ),
+        )
+        .all()
+    }
+    q = (
+        db.session.query(Employee)
+        .options(joinedload(Employee.branch))
+        .filter(Employee.company_id == cid)
+    )
     department_id = request.args.get('department_id', type=int)
     job_title_id = request.args.get('job_title_id', type=int)
     status = request.args.get('status')
+    directors_only = request.args.get('directors_only') == '1'
     search = request.args.get('q', '').strip()
     if department_id:
         q = q.filter(Employee.department_id == department_id)
@@ -68,6 +94,11 @@ def list():
         q = q.filter(Employee.job_title_id == job_title_id)
     if status:
         q = q.filter(Employee.status == status)
+    if directors_only:
+        if director_title_ids:
+            q = q.filter(Employee.job_title_id.in_(director_title_ids))
+        else:
+            q = q.filter(db.text('1=0'))
     if search:
         q = q.filter(
             db.or_(
@@ -78,18 +109,27 @@ def list():
             )
         )
     employees = q.order_by(Employee.employee_number).all()
-    departments = db.session.query(Department).order_by(Department.name).all()
-    return render_template('employees/list.html', employees=employees, departments=departments)
+    departments = (
+        db.session.query(Department).filter(Department.company_id == cid).order_by(Department.name).all()
+    )
+    return render_template(
+        'employees/list.html',
+        employees=employees,
+        departments=departments,
+        director_title_ids=director_title_ids,
+    )
 
 
 @employees_bp.route('/birthdays')
 @login_required
 @permission_required('view_employees')
 def birthdays():
+    cid = require_company_id()
     selected_year = request.args.get('year', type=int) or date.today().year
     rows = (
         db.session.query(Employee)
         .filter(
+            Employee.company_id == cid,
             Employee.status == 'active',
             Employee.date_of_birth.isnot(None),
         )
@@ -123,14 +163,38 @@ def birthdays():
 @login_required
 @permission_required('create_employees')
 def create():
+    cid = require_company_id()
     form = EmployeeForm()
-    form.department_id.choices = [('', '--')] + [(d.id, d.name) for d in db.session.query(Department).order_by(Department.name).all()]
-    form.job_title_id.choices = [('', '--')] + [(j.id, j.name) for j in db.session.query(JobTitle).order_by(JobTitle.name).all()]
-    form.manager_id.choices = [('', '--')] + [(e.id, e.full_name) for e in db.session.query(Employee).filter(Employee.status == 'active').order_by(Employee.first_name).all()]
+    form.department_id.choices = [('', '--')] + [
+        (d.id, d.name) for d in db.session.query(Department).filter(Department.company_id == cid).order_by(Department.name).all()
+    ]
+    form.job_title_id.choices = [('', '--')] + [
+        (j.id, j.name) for j in db.session.query(JobTitle).filter(JobTitle.company_id == cid).order_by(JobTitle.name).all()
+    ]
+    form.branch_id.choices = [
+        (
+            b.id,
+            f'{b.name} ({b.country_code} · {currency_for_branch(b, app_default=current_app.config.get("DEFAULT_CURRENCY", "KES"))})',
+        )
+        for b in db.session.query(Branch).filter(Branch.company_id == cid).order_by(Branch.name).all()
+    ]
+    form.manager_id.choices = [('', '--')] + [
+        (e.id, e.full_name)
+        for e in db.session.query(Employee)
+        .filter(Employee.company_id == cid, Employee.status == 'active')
+        .order_by(Employee.first_name)
+        .all()
+    ]
     if form.validate_on_submit():
         try:
+            branch = db.session.get(Branch, form.branch_id.data) if form.branch_id.data else None
+            if not branch or branch.company_id != cid:
+                flash('Select a valid branch for this company.', 'danger')
+                return render_template('employees/create.html', form=form)
             emp = Employee(
-                employee_number=_next_employee_number(),
+                company_id=cid,
+                branch_id=branch.id,
+                employee_number=_next_employee_number(cid),
                 first_name=form.first_name.data,
                 last_name=form.last_name.data,
                 middle_name=form.middle_name.data or None,
@@ -182,7 +246,7 @@ def create():
 @login_required
 def view(id):
     emp = db.session.get(Employee, id)
-    if not emp:
+    if not emp or emp.company_id != require_company_id():
         from flask import abort
         abort(404)
     # Employees can view own profile; others need permission
@@ -196,16 +260,39 @@ def view(id):
 @login_required
 @permission_required('edit_employees')
 def edit(id):
+    cid = require_company_id()
     emp = db.session.get(Employee, id)
-    if not emp:
+    if not emp or emp.company_id != cid:
         from flask import abort
         abort(404)
     form = EmployeeForm(obj=emp)
-    form.department_id.choices = [('', '--')] + [(d.id, d.name) for d in db.session.query(Department).order_by(Department.name).all()]
-    form.job_title_id.choices = [('', '--')] + [(j.id, j.name) for j in db.session.query(JobTitle).order_by(JobTitle.name).all()]
-    form.manager_id.choices = [('', '--')] + [(e.id, e.full_name) for e in db.session.query(Employee).filter(Employee.status == 'active').order_by(Employee.first_name).all()]
+    form.branch_id.choices = [
+        (
+            b.id,
+            f'{b.name} ({b.country_code} · {currency_for_branch(b, app_default=current_app.config.get("DEFAULT_CURRENCY", "KES"))})',
+        )
+        for b in db.session.query(Branch).filter(Branch.company_id == cid).order_by(Branch.name).all()
+    ]
+    form.department_id.choices = [('', '--')] + [
+        (d.id, d.name) for d in db.session.query(Department).filter(Department.company_id == cid).order_by(Department.name).all()
+    ]
+    form.job_title_id.choices = [('', '--')] + [
+        (j.id, j.name) for j in db.session.query(JobTitle).filter(JobTitle.company_id == cid).order_by(JobTitle.name).all()
+    ]
+    form.manager_id.choices = [('', '--')] + [
+        (e.id, e.full_name)
+        for e in db.session.query(Employee)
+        .filter(Employee.company_id == cid, Employee.status == 'active', Employee.id != emp.id)
+        .order_by(Employee.first_name)
+        .all()
+    ]
     if form.validate_on_submit():
+        branch = db.session.get(Branch, form.branch_id.data)
+        if not branch or branch.company_id != cid:
+            flash('Select a valid branch for this company.', 'danger')
+            return render_template('employees/edit.html', form=form, employee=emp)
         old = model_to_audit_dict(emp)
+        emp.branch_id = branch.id
         emp.first_name = form.first_name.data
         emp.last_name = form.last_name.data
         emp.middle_name = form.middle_name.data or None
@@ -252,15 +339,22 @@ def edit(id):
 def salary(id):
     from datetime import date
     emp = db.session.get(Employee, id)
-    if not emp:
+    if not emp or emp.company_id != require_company_id():
         from flask import abort
         abort(404)
     form = EmployeeSalaryForm()
     salary_records = db.session.query(EmployeeSalary).filter(EmployeeSalary.employee_id == id).order_by(
         EmployeeSalary.effective_from.desc()).all()
-    allowances = db.session.query(Allowance).order_by(Allowance.name).all()
+    allowances = (
+        db.session.query(Allowance).filter(Allowance.company_id == emp.company_id).order_by(Allowance.name).all()
+    )
     employee_allowances = db.session.query(EmployeeAllowance).filter(EmployeeAllowance.employee_id == id).order_by(
         EmployeeAllowance.effective_from.desc()).all()
+    branch_cc = (emp.branch.country_code if emp.branch else 'KE') or 'KE'
+    currency_code = currency_for_branch(
+        emp.branch,
+        app_default=current_app.config.get('DEFAULT_CURRENCY', 'KES'),
+    ) if emp.branch else current_app.config.get('DEFAULT_CURRENCY', 'KES')
 
     if request.method == 'POST':
         action = request.form.get('action', 'add_salary')
@@ -324,6 +418,8 @@ def salary(id):
     return render_template(
         'employees/salary.html',
         employee=emp,
+        branch_country_code=branch_cc.upper()[:2],
+        currency_code=currency_code,
         form=form,
         salary_records=salary_records,
         allowances=allowances,
@@ -340,7 +436,7 @@ def employee_deductions(id):
     from decimal import Decimal as Dec
 
     emp = db.session.get(Employee, id)
-    if not emp:
+    if not emp or emp.company_id != require_company_id():
         from flask import abort
         abort(404)
     assignments = (
@@ -417,7 +513,7 @@ def employee_deductions(id):
 @permission_required('edit_employees')
 def link_user(id):
     emp = db.session.get(Employee, id)
-    if not emp:
+    if not emp or emp.company_id != require_company_id():
         from flask import abort
         abort(404)
     if emp.user:
@@ -437,7 +533,7 @@ def link_user(id):
         if db.session.query(User).filter_by(email=email).first():
             flash('A user with this email already exists.', 'danger')
             return render_template('employees/link_user.html', employee=emp, roles=roles)
-        user = User(email=email, employee_id=emp.id, is_active=True)
+        user = User(email=email, employee_id=emp.id, company_id=emp.company_id, is_active=True)
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
@@ -510,19 +606,36 @@ def _cloudinary_upload_employee_doc(file_storage, employee_id: int) -> tuple[str
 @login_required
 def documents(id):
     emp = db.session.get(Employee, id)
-    if not emp:
+    if not emp or emp.company_id != require_company_id():
         abort(404)
     if not _can_access_employee_documents(id):
         abort(403)
     docs = db.session.query(EmployeeDocument).filter(EmployeeDocument.employee_id == id).order_by(
         EmployeeDocument.created_at.desc()).all()
-    categories = db.session.query(DocumentCategory).order_by(DocumentCategory.name).all()
+    categories = (
+        db.session.query(DocumentCategory)
+        .filter(DocumentCategory.company_id == emp.company_id)
+        .order_by(DocumentCategory.name)
+        .all()
+    )
     if not categories:
         for code, name in [('CONTRACT', 'Contract'), ('ID', 'National ID'), ('KRA_PIN', 'KRA PIN'),
                            ('NSSF', 'NSSF'), ('CERTIFICATE', 'Certificate'), ('OTHER', 'Other')]:
-            db.session.add(DocumentCategory(code=code, name=name, track_expiry=(code in ('CONTRACT', 'ID', 'CERTIFICATE'))))
+            db.session.add(
+                DocumentCategory(
+                    company_id=emp.company_id,
+                    code=code,
+                    name=name,
+                    track_expiry=(code in ('CONTRACT', 'ID', 'CERTIFICATE')),
+                )
+            )
         db.session.commit()
-        categories = db.session.query(DocumentCategory).order_by(DocumentCategory.name).all()
+        categories = (
+            db.session.query(DocumentCategory)
+            .filter(DocumentCategory.company_id == emp.company_id)
+            .order_by(DocumentCategory.name)
+            .all()
+        )
     if request.method == 'POST':
         if not current_user.has_permission('edit_employees'):
             abort(403)
@@ -577,6 +690,9 @@ def documents(id):
 @login_required
 def document_open(id, doc_id):
     """Open/download employee document."""
+    emp = db.session.get(Employee, id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
     if not _can_access_employee_documents(id):
         abort(403)
     doc = db.session.get(EmployeeDocument, doc_id)

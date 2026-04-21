@@ -1,4 +1,4 @@
-"""Public holidays: excluded from working-day leave counts."""
+"""Public holidays: excluded from working-day leave counts (per company + country)."""
 from __future__ import annotations
 
 import calendar
@@ -18,16 +18,24 @@ def recurring_holiday_date_in_year(year: int, month: int, day: int) -> date:
     return date(year, month, d)
 
 
-def public_holiday_dates_in_range(start: date, end: date) -> set[date]:
-    """All public holiday dates in [start, end] (recurring expanded per year + one-offs)."""
+def public_holiday_dates_in_range(
+    start: date,
+    end: date,
+    company_id: int,
+    country_code: str,
+) -> set[date]:
+    """All public holiday dates in [start, end] for tenant `company_id` and branch country."""
     if start > end:
         return set()
+    cc = (country_code or 'KE').upper()[:2]
     out: set[date] = set()
     y0, y1 = start.year, end.year
 
     one_offs = (
         db.session.query(PublicHoliday)
         .filter(
+            PublicHoliday.company_id == company_id,
+            PublicHoliday.country_code == cc,
             PublicHoliday.kind == 'one_off',
             PublicHoliday.date.isnot(None),
             PublicHoliday.date >= start,
@@ -41,6 +49,8 @@ def public_holiday_dates_in_range(start: date, end: date) -> set[date]:
     recurring = (
         db.session.query(PublicHoliday)
         .filter(
+            PublicHoliday.company_id == company_id,
+            PublicHoliday.country_code == cc,
             PublicHoliday.kind == 'recurring',
             PublicHoliday.recurring_month.isnot(None),
             PublicHoliday.recurring_day.isnot(None),

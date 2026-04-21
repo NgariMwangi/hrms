@@ -73,7 +73,7 @@ def statistics_for_employee(employee_id: int, year: int | None = None) -> list[d
     g = normalize_gender(emp.gender)
     types_q = (
         db.session.query(LeaveType)
-        .filter(LeaveType.is_active.is_(True))
+        .filter(LeaveType.company_id == emp.company_id, LeaveType.is_active.is_(True))
         .order_by(LeaveType.name)
         .all()
     )

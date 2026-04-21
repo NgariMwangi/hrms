@@ -75,6 +75,9 @@ def calculate_employee_payroll(
     allowance_breakdown: list = None,
     employee_id: int = None,
     manual_deduction_lines: list = None,
+    statutory_company_id: int | None = None,
+    statutory_country_code: str = 'KE',
+    overtime_days: Decimal | None = None,
 ) -> dict:
     """
     Calculate single employee's pay for the month.
@@ -85,8 +88,12 @@ def calculate_employee_payroll(
     employee_id: if set, active recurring EmployeeDeduction rows are applied (see deduction_service).
     manual_deduction_lines: optional list of dicts {code, name, amount (Decimal)} from draft payroll run overrides.
     other_deductions: legacy fixed amount added to the same bucket (rarely used).
+    overtime_days: optional approved overtime days; amount = (monthly_gross * 12 / 365) * days, added to gross
+        and pensionable base for statutory calculations.
     """
     pay_date = pay_date or date.today()
+    scid = statutory_company_id
+    scc = (statutory_country_code or 'KE').upper()[:2]
     factor = decimalize(pro_rata_factor) if pro_rata_factor is not None else Decimal('1')
     other_earn = decimalize(other_earnings)
     legacy_other = decimalize(other_deductions)
@@ -130,18 +137,33 @@ def calculate_employee_payroll(
             {'code': 'OTHER_ALLOW', 'name': 'Other Allowances', 'amount': float(other_allow + other_earn)},
         ]
 
-    nssf_emp, nssf_empr, nssf_breakdown = calculate_nssf_with_breakdown(pensionable, pay_date)
+    ot_days = decimalize(overtime_days) if overtime_days is not None else Decimal('0')
+    ot_amt = Decimal('0')
+    if ot_days > 0:
+        per_day = (gross_pay * Decimal('12')) / Decimal('365')
+        ot_amt = (per_day * ot_days).quantize(Decimal('0.01'))
+        earnings_breakdown.append(
+            {'code': 'OVERTIME', 'name': 'Overtime compensation', 'amount': float(ot_amt)}
+        )
+        gross_pay = (gross_pay + ot_amt).quantize(Decimal('0.01'))
+        pensionable = (pensionable + ot_amt).quantize(Decimal('0.01'))
+
+    if scid is None:
+        raise ValueError('statutory_company_id is required for payroll calculation')
+    nssf_emp, nssf_empr, nssf_breakdown = calculate_nssf_with_breakdown(
+        pensionable, pay_date, scid, scc
+    )
     nssf_emp = nssf_emp.quantize(Decimal('0.01'))
     nssf_empr = nssf_empr.quantize(Decimal('0.01'))
 
-    shif = calculate_shif(gross_pay, pay_date)
-    housing_levy = calculate_housing_levy(gross_pay, pay_date)
+    shif = calculate_shif(gross_pay, pay_date, scid, scc)
+    housing_levy = calculate_housing_levy(gross_pay, pay_date, scid, scc)
     pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
     # PAYE taxable pay: gross less NSSF (employee), SHIF, and Housing Levy only (not pension).
     taxable_pay = (gross_pay - nssf_emp - shif - housing_levy).quantize(Decimal('0.01'))
     if taxable_pay < 0:
         taxable_pay = Decimal('0')
-    paye = calculate_paye(taxable_pay, pay_date)
+    paye = calculate_paye(taxable_pay, pay_date, scid, scc)
     recurring_lines = (
         get_recurring_deduction_line_items(employee_id, pay_date, gross_pay, basic)
         if employee_id

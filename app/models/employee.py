@@ -38,6 +38,12 @@ class Employee(BaseModel):
     emergency_contact_name = db.Column(db.String(200), nullable=True)
     emergency_contact_phone = db.Column(db.String(30), nullable=True)
 
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    branch_id = db.Column(db.Integer, db.ForeignKey('branches.id', ondelete='RESTRICT'), nullable=False)
+
+    company = db.relationship('Company', backref='employees')
+    branch = db.relationship('Branch', backref='employees')
+
     # Employment
     department_id = db.Column(db.Integer, db.ForeignKey('departments.id', ondelete='SET NULL'), nullable=True)
     job_title_id = db.Column(db.Integer, db.ForeignKey('job_titles.id', ondelete='SET NULL'), nullable=True)

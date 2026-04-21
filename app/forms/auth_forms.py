@@ -1,7 +1,7 @@
 """Auth forms: login, register, password reset."""
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField, SubmitField
-from wtforms.validators import DataRequired, Email, Length, ValidationError, EqualTo
+from wtforms.validators import DataRequired, Email, Length, Optional, ValidationError, EqualTo
 
 
 class LoginForm(FlaskForm):
@@ -14,6 +14,15 @@ class LoginForm(FlaskForm):
 
 class RegisterForm(FlaskForm):
     """First-time setup: create the initial admin account."""
+    organization_name = StringField(
+        'Organization name',
+        validators=[DataRequired(), Length(min=1, max=200)],
+    )
+    country_code = StringField(
+        'Primary country (ISO2)',
+        default='KE',
+        validators=[Optional(), Length(min=2, max=2)],
+    )
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[
         DataRequired(),

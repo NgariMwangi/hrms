@@ -62,6 +62,7 @@ class EmployeeForm(FlaskForm):
     postal_address = StringField('Postal Address', validators=[Optional()])
     emergency_contact_name = StringField('Emergency Contact Name', validators=[Optional()])
     emergency_contact_phone = StringField('Emergency Contact Phone', validators=[Optional(), _validate_phone])
+    branch_id = SelectField('Work site (branch)', coerce=int, validators=[DataRequired()])
     department_id = SelectField('Department', coerce=_coerce_optional_int, validators=[Optional()])
     job_title_id = SelectField('Job Title', coerce=_coerce_optional_int, validators=[Optional()])
     manager_id = SelectField('Manager', coerce=_coerce_optional_int, validators=[Optional()])
@@ -78,7 +79,7 @@ class EmployeeForm(FlaskForm):
     confirmation_date = DateField('Confirmation Date', validators=[Optional()])
     contract_end_date = DateField('Contract End Date', validators=[Optional()])
     bank_name = StringField('Bank Name', validators=[Optional()])
-    bank_branch = StringField('Branch', validators=[Optional()])
+    bank_branch = StringField('Bank branch', validators=[Optional()])
     bank_account_number = StringField('Account Number', validators=[Optional()])
     bank_code = StringField('Bank Code', validators=[Optional()])
     swift_code = StringField('SWIFT Code', validators=[Optional()])
@@ -97,7 +98,7 @@ class EmployeeForm(FlaskForm):
 
 class EmployeeSalaryForm(FlaskForm):
     """Employee basic salary record. Allowances are added separately via Allowance table."""
-    basic_salary = FloatField('Basic Salary (KES)', validators=[DataRequired()])
+    basic_salary = FloatField('Basic Salary', validators=[DataRequired()])
     pension_employee_percent = FloatField('Pension Employee %', default=0, validators=[Optional()])
     pension_employer_percent = FloatField('Pension Employer %', default=0, validators=[Optional()])
     effective_from = DateField('Effective From', validators=[DataRequired()])

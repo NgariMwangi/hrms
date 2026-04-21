@@ -8,8 +8,13 @@ from app.models.base import BaseModel
 class DocumentCategory(db.Model):
     """Category: Contract, ID, KRA PIN, NSSF, Certificate, etc."""
     __tablename__ = 'document_categories'
+    __table_args__ = (db.UniqueConstraint('company_id', 'code', name='uq_document_categories_company_code'),)
+
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company = db.relationship('Company', backref='document_categories')
+
+    code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     track_expiry = db.Column(db.Boolean, default=False, nullable=False)
 

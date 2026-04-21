@@ -1,0 +1,46 @@
+{% extends "layouts/base.html" %}
+{% block title %}Executive Summary - {{ app_name }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center justify-content-between mb-4">
+    <div>
+        <h1 class="h3 mb-1">Executive Summary</h1>
+        <p class="text-muted mb-0">Company operations snapshot for leadership reporting.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('reports.executive_summary_csv') }}">Export CSV</a>
+        <a class="btn btn-primary btn-sm" href="{{ url_for('reports.executive_summary_pdf') }}">Export PDF</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <div class="small text-muted">Company</div>
+        <div class="fw-semibold">{{ employer_name }}</div>
+        <div class="small text-muted">KRA PIN: {{ employer_pin }}</div>
+        <div class="small text-muted mt-1">Generated: {{ summary.generated_at.strftime('%d %b %Y %H:%M') }}</div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr><th>Metric</th><th class="text-end">Value</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Active employees</td><td class="text-end">{{ summary.active_employees }}</td></tr>
+                    <tr><td>Pending leave approvals</td><td class="text-end">{{ summary.pending_leave }}</td></tr>
+                    <tr><td>Pending overtime approvals</td><td class="text-end">{{ summary.pending_overtime }}</td></tr>
+                    <tr><td>New hires this month</td><td class="text-end">{{ summary.new_hires_this_month }}</td></tr>
+                    <tr><td>Exits this month</td><td class="text-end">{{ summary.exits_this_month }}</td></tr>
+                    <tr><td>Latest payroll period</td><td class="text-end">{{ summary.latest_payroll.period }}</td></tr>
+                    <tr><td>Employees paid (latest payroll)</td><td class="text-end">{{ summary.latest_payroll.employees_paid }}</td></tr>
+                    <tr><td>Gross paid (latest payroll)</td><td class="text-end">{{ summary.latest_payroll.gross_paid|fmt_money(currency) }}</td></tr>
+                    <tr><td>Net paid (latest payroll)</td><td class="text-end">{{ summary.latest_payroll.net_paid|fmt_money(currency) }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

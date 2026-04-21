@@ -253,6 +253,49 @@ body.app-body {
   box-shadow: var(--shadow-sm);
 }
 
+.tenant-topbar-meta {
+  max-width: 100%;
+}
+
+.tenant-topbar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #3730a3;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 999px;
+  max-width: min(280px, 42vw);
+}
+
+.tenant-topbar-pill--branch {
+  color: #0f766e;
+  background: rgba(13, 148, 136, 0.1);
+  border-color: rgba(13, 148, 136, 0.22);
+}
+
+.tenant-topbar-pill--currency {
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.tenant-topbar-pill i {
+  font-size: 0.95rem;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.tenant-topbar-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .app-content {
   flex: 1;
   padding: 1.75rem 1.75rem 2rem;

@@ -3,6 +3,7 @@ SQLAlchemy models for HRMS Kenya.
 Import all models here so they are registered with Flask-Migrate.
 """
 from app.models.user import User, Role, Permission, UserRole
+from app.models.company import Company, Branch
 from app.models.employee import Employee
 from app.models.department import Department
 from app.models.job_title import JobTitle
@@ -18,6 +19,7 @@ from app.models.payroll import (
     PayrollItem,
     PayrollStatutoryRemittance,
     PayrollRunManualDeduction,
+    PayrollRunExclusion,
     EmployeeSalary,
     EmployeeAllowance,
     Allowance,
@@ -26,6 +28,7 @@ from app.models.payroll import (
     EarningsDeductionType,
 )
 from app.models.leave import LeaveType, LeaveBalance, LeaveRequest, PublicHoliday
+from app.models.overtime import OvertimeRequest
 from app.models.attendance import AttendanceRecord
 from app.models.document import EmployeeDocument, DocumentCategory
 from app.models.notification import Notification
@@ -33,6 +36,8 @@ from app.models.report import SavedReport
 from app.models.employer import Employer
 
 __all__ = [
+    'Company',
+    'Branch',
     'User',
     'Role',
     'Permission',
@@ -49,6 +54,7 @@ __all__ = [
     'PayrollItem',
     'PayrollStatutoryRemittance',
     'PayrollRunManualDeduction',
+    'PayrollRunExclusion',
     'Deduction',
     'EmployeeDeduction',
     'EmployeeSalary',
@@ -59,6 +65,7 @@ __all__ = [
     'LeaveBalance',
     'LeaveRequest',
     'PublicHoliday',
+    'OvertimeRequest',
     'AttendanceRecord',
     'EmployeeDocument',
     'DocumentCategory',

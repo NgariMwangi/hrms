@@ -1,7 +1,5 @@
 """
-Employer (company using the system).
-
-This is treated as a singleton-like record (the app UI updates the first row).
+Employer legal / payroll identity — one profile per tenant Company.
 """
 
 from app.extensions import db
@@ -10,6 +8,9 @@ from app.models.base import BaseModel
 
 class Employer(BaseModel):
     __tablename__ = 'employers'
+
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, unique=True)
+    company = db.relationship('Company', back_populates='employer_profile')
 
     # Common employer identifiers
     name = db.Column(db.String(250), nullable=False, default='')

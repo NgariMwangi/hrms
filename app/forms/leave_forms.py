@@ -11,7 +11,7 @@ from wtforms import (
     SubmitField,
     TextAreaField,
 )
-from wtforms.validators import DataRequired, Optional, ValidationError, NumberRange
+from wtforms.validators import DataRequired, Optional, ValidationError, NumberRange, Length
 from datetime import date as dt_date
 
 
@@ -112,6 +112,12 @@ _MONTH_CHOICES = [
 
 class PublicHolidayForm(FlaskForm):
     """HR: recurring (every year) or one-off public holiday."""
+    country_code = StringField(
+        'Country (ISO 3166-1 alpha-2)',
+        default='KE',
+        validators=[DataRequired(), Length(min=2, max=2)],
+        render_kw={'placeholder': 'e.g. KE, UG', 'maxlength': 2},
+    )
     kind = RadioField(
         'Holiday type',
         choices=[

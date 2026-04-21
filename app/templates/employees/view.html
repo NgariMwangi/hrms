@@ -20,6 +20,7 @@
         <div class="card mb-3">
             <div class="card-header">Employment</div>
             <div class="card-body">
+                <p class="mb-1"><strong>Work site (branch):</strong> {% if employee.branch %}{{ employee.branch.name }} · {{ employee.branch.country_code }}{% if employee.branch.currency_code %} · {{ employee.branch.currency_code }}{% endif %}{% else %}—{% endif %}</p>
                 <p class="mb-1"><strong>Department:</strong> {{ employee.department.name if employee.department else '-' }}</p>
                 <p class="mb-1"><strong>Job Title:</strong> {{ employee.job_title.name if employee.job_title else '-' }}</p>
                 <p class="mb-1"><strong>Manager:</strong> {{ employee.manager.full_name if employee.manager else '-' }}</p>
@@ -27,6 +28,21 @@
                 <p class="mb-1"><strong>Hire Date:</strong> {{ employee.hire_date.strftime('%d %b %Y') if employee.hire_date else '-' }}</p>
             </div>
         </div>
+    </div>
+</div>
+<div class="card mb-3">
+    <div class="card-header">Bank (payroll)</div>
+    <div class="card-body">
+        {% if employee.bank_name or employee.bank_account_number %}
+        <p class="mb-1"><strong>Bank:</strong> {{ employee.bank_name or '—' }}{% if employee.bank_branch %} — {{ employee.bank_branch }}{% endif %}</p>
+        <p class="mb-1"><strong>Account:</strong> {{ (employee.bank_account_number or '')|mask_bank_account }}</p>
+        <p class="mb-1 text-muted small mb-0">{% if has_permission('edit_employees') %}Open <strong>Edit details</strong> to view or change the full account number.{% else %}Ask HR to update bank details if needed.{% endif %} Store a cancelled cheque or bank letter under <a href="{{ url_for('employees.documents', id=employee.id) }}">Documents</a> if your policy requires proof.</p>
+        {% else %}
+        <p class="text-muted mb-2">No bank details on file.</p>
+        {% if has_permission('edit_employees') %}
+        <p class="mb-0"><a href="{{ url_for('employees.edit', id=employee.id) }}" class="btn btn-sm btn-outline-primary">Add bank details</a></p>
+        {% endif %}
+        {% endif %}
     </div>
 </div>
 <div class="card mb-3">

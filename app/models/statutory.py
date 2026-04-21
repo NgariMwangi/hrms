@@ -22,8 +22,12 @@ class StatutoryRate(BaseModel):
     """Single rate value with effective date range. Used for percentages (SHIF, Housing) and fixed amounts (relief)."""
     __tablename__ = 'statutory_rates'
     __table_args__ = (
-        db.Index('ix_statutory_rates_code_effective', 'code', 'effective_from'),
+        db.Index('ix_statutory_rates_scope_code_effective', 'company_id', 'country_code', 'code', 'effective_from'),
     )
+
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    country_code = db.Column(db.String(2), nullable=False, default='KE')
+    company = db.relationship('Company', backref='statutory_rates')
 
     code = db.Column(db.String(50), nullable=False)  # e.g. SHIF_PERCENT, HOUSING_LEVY_PERCENT, PERSONAL_RELIEF
     effective_from = db.Column(db.Date, nullable=False)
@@ -36,8 +40,12 @@ class PayeBracket(BaseModel):
     """PAYE tax bracket: min, max (nullable for top bracket), rate percent."""
     __tablename__ = 'paye_brackets'
     __table_args__ = (
-        db.Index('ix_paye_brackets_effective', 'effective_from', 'effective_to'),
+        db.Index('ix_paye_brackets_scope_effective', 'company_id', 'country_code', 'effective_from', 'effective_to'),
     )
+
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    country_code = db.Column(db.String(2), nullable=False, default='KE')
+    company = db.relationship('Company', backref='paye_brackets')
 
     effective_from = db.Column(db.Date, nullable=False)
     effective_to = db.Column(db.Date, nullable=True)
@@ -51,14 +59,18 @@ class NssfTier(BaseModel):
     """NSSF tier: lower/upper pensionable pay and employee + employer rates (Feb 2026)."""
     __tablename__ = 'nssf_tiers'
     __table_args__ = (
-        db.Index('ix_nssf_tiers_effective', 'effective_from', 'effective_to'),
+        db.Index('ix_nssf_tiers_scope_effective', 'company_id', 'country_code', 'effective_from', 'effective_to'),
     )
+
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    country_code = db.Column(db.String(2), nullable=False, default='KE')
+    company = db.relationship('Company', backref='nssf_tiers')
 
     effective_from = db.Column(db.Date, nullable=False)
     effective_to = db.Column(db.Date, nullable=True)
     tier_number = db.Column(db.Integer, nullable=False)  # 1 or 2
     pensionable_min = db.Column(db.Numeric(12, 2), nullable=False)
-    pensionable_max = db.Column(db.Numeric(12, 2), nullable=False)
+    pensionable_max = db.Column(db.Numeric(12, 2), nullable=True)  # NULL = no pensionable cap for this tier
     employee_percent = db.Column(db.Numeric(5, 2), nullable=False)
     employer_percent = db.Column(db.Numeric(5, 2), nullable=False)
     # Optional cap on contribution amount (some tiers have max contribution)

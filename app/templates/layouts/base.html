@@ -21,11 +21,12 @@
         </a>
         <nav class="nav flex-column">
             {% set ep = request.endpoint %}
-            {% set org_active = ep and (ep.startswith('departments') or ep.startswith('job_titles') or ep.startswith('allowances')) %}
+            {% set org_active = ep and (ep.startswith('departments') or ep.startswith('branches') or ep.startswith('job_titles') or ep.startswith('allowances')) %}
             {% set leave_types_active = ep in ('leave.types_index', 'leave.type_create', 'leave.type_edit', 'leave.type_delete', 'leave.balances', 'leave.admin_request_leave', 'leave.holidays_index', 'leave.holiday_create', 'leave.holiday_edit') %}
             {% set leave_main_active = ep and ep.startswith('leave') and not leave_types_active %}
             {% set leave_section_active = ep and ep.startswith('leave') %}
             {% set payroll_section_active = ep and ep.startswith('payroll') %}
+            {% set overtime_active = ep and ep.startswith('overtime') %}
             {% set show_payroll_group = current_user.employee_id and has_permission('view_payroll') %}
             <a class="nav-link {{ 'active' if ep == 'dashboard.index' else '' }}" href="{{ url_for('dashboard.index') }}">
                 <i class="bi bi-grid-1x2"></i> Dashboard
@@ -45,6 +46,9 @@
                     <div class="collapse-inner">
                         <a class="nav-link {{ 'active' if ep and ep.startswith('departments') else '' }}" href="{{ url_for('departments.index') }}">
                             <i class="bi bi-diagram-3"></i> Departments
+                        </a>
+                        <a class="nav-link {{ 'active' if ep and ep.startswith('branches') else '' }}" href="{{ url_for('branches.index') }}">
+                            <i class="bi bi-geo-alt"></i> Branches
                         </a>
                         <a class="nav-link {{ 'active' if ep and ep.startswith('job_titles') else '' }}" href="/job-titles/">
                             <i class="bi bi-briefcase"></i> Job Titles
@@ -85,6 +89,11 @@
             {% else %}
             <a class="nav-link {{ 'active' if leave_main_active else '' }}" href="{{ url_for('leave.index') }}">
                 <i class="bi bi-calendar-check"></i> Leave
+            </a>
+            {% endif %}
+            {% if has_permission('request_overtime') or has_permission('submit_overtime_same_dept') or has_permission('approve_overtime') %}
+            <a class="nav-link {{ 'active' if overtime_active else '' }}" href="{{ url_for('overtime.index') }}">
+                <i class="bi bi-clock-history"></i> Overtime
             </a>
             {% endif %}
             {% if show_payroll_group %}
@@ -163,11 +172,52 @@
     <div class="app-main">
         {% if current_user.is_authenticated %}
         <header class="app-topbar">
-            <div class="d-flex align-items-center">
-                <button type="button" class="btn btn-link text-secondary d-lg-none me-2 p-0 rounded-3" id="sidebarToggle" aria-label="Toggle sidebar">
-                    <i class="bi bi-list fs-4"></i>
-                </button>
-                <span class="text-muted small">{% block breadcrumb %}{% endblock %}</span>
+            <div class="d-flex align-items-center flex-wrap justify-content-between gap-2 w-100">
+                <div class="d-flex align-items-center min-w-0">
+                    <button type="button" class="btn btn-link text-secondary d-lg-none me-2 p-0 rounded-3" id="sidebarToggle" aria-label="Toggle sidebar">
+                        <i class="bi bi-list fs-4"></i>
+                    </button>
+                    <span class="text-muted small text-truncate">{% block breadcrumb %}{% endblock %}</span>
+                </div>
+                {% if tenant_nav.company %}
+                <div class="tenant-topbar-meta d-flex align-items-center flex-wrap gap-2 flex-shrink-0">
+                    <span class="tenant-topbar-pill" title="Current organization">
+                        <i class="bi bi-building"></i>
+                        <span class="tenant-topbar-pill-text">{{ tenant_nav.company }}</span>
+                    </span>
+                    {% if tenant_nav.branch %}
+                    <span class="tenant-topbar-pill tenant-topbar-pill--branch" title="{% if tenant_nav.branch_is_personal %}From your linked employee record.{% else %}Primary site for your organization (first branch by name). Link your user to an employee under Settings → Users to show your own assignment.{% endif %}">
+                        <i class="bi bi-geo-alt"></i>
+                        <span class="tenant-topbar-pill-text">{{ tenant_nav.branch }}</span>
+                    </span>
+                    {% else %}
+                    <span class="text-muted small d-none d-sm-inline" title="Add a branch under Organization → Branches">No branches configured</span>
+                    {% endif %}
+                    {% if tenant_nav.currency %}
+                    <span class="tenant-topbar-pill tenant-topbar-pill--currency" title="Payroll display currency (from your branch or app default)">
+                        <i class="bi bi-currency-exchange"></i>
+                        <span class="tenant-topbar-pill-text">{{ tenant_nav.currency }}</span>
+                    </span>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if pending_approvals and pending_approvals.total > 0 %}
+                <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                    <span class="badge text-bg-warning text-dark">
+                        {{ pending_approvals.total }} pending approval{{ '' if pending_approvals.total == 1 else 's' }}
+                    </span>
+                    {% if pending_approvals.leave > 0 %}
+                    <a href="{{ url_for('leave.index') }}" class="btn btn-sm btn-outline-secondary">
+                        Leave {{ pending_approvals.leave }}
+                    </a>
+                    {% endif %}
+                    {% if pending_approvals.overtime > 0 %}
+                    <a href="{{ url_for('overtime.index') }}" class="btn btn-sm btn-outline-secondary">
+                        Overtime {{ pending_approvals.overtime }}
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
         </header>
         {% endif %}
@@ -203,8 +253,32 @@
             var overlay = document.getElementById('sidebarOverlay');
             var toggle = document.getElementById('sidebarToggle');
             if (sidebar && overlay && toggle) {
-                toggle.addEventListener('click', function() { sidebar.classList.add('show'); overlay.classList.add('show'); });
-                overlay.addEventListener('click', function() { sidebar.classList.remove('show'); overlay.classList.remove('show'); });
+                var hideSidebar = function() {
+                    sidebar.classList.remove('show');
+                    overlay.classList.remove('show');
+                    overlay.setAttribute('aria-hidden', 'true');
+                };
+                var showSidebar = function() {
+                    sidebar.classList.add('show');
+                    overlay.classList.add('show');
+                    overlay.setAttribute('aria-hidden', 'false');
+                };
+                // Defensive reset: if previous interaction left overlay active, clear it.
+                hideSidebar();
+                toggle.addEventListener('click', function() { showSidebar(); });
+                overlay.addEventListener('click', function() { hideSidebar(); });
+                window.addEventListener('resize', function() {
+                    if (window.innerWidth >= 992) hideSidebar();
+                });
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') hideSidebar();
+                });
+                // On mobile, close sidebar after clicking any nav link.
+                sidebar.querySelectorAll('a.nav-link').forEach(function(link) {
+                    link.addEventListener('click', function() {
+                        if (window.innerWidth < 992) hideSidebar();
+                    });
+                });
             }
             // Auto-dismiss flash messages
             var flashContainer = document.getElementById('flashMessages');

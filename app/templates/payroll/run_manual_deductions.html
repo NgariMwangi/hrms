@@ -1,9 +1,9 @@
 {% extends "layouts/base.html" %}
-{% block title %}Manual deductions - Payroll {{ run.pay_month }}/{{ run.pay_year }}{% endblock %}
+{% block title %}Manual deductions - Payroll {{ run_country_code }} {{ run.pay_month }}/{{ run.pay_year }}{% endblock %}
 {% block content %}
 <h1 class="h4 mb-3">Manual deductions (one-off)</h1>
 <p class="text-muted small mb-4">
-    Payroll <strong>{{ run.pay_month }}/{{ run.pay_year }}</strong> (draft).
+    Payroll <strong>{{ run_country_code }} {{ run.pay_month }}/{{ run.pay_year }}</strong> (draft).
     Add amounts that apply only to this run (e.g. ad-hoc loan catch-up). Then <a href="{{ url_for('payroll.run_calculate', id=run.id) }}">recalculate payroll</a>.
     For recurring deductions every month, use the employee’s <strong>Deductions</strong> page.
 </p>
@@ -31,7 +31,7 @@
                 <input type="text" name="label" class="form-control" placeholder="e.g. Loan top-up" required maxlength="200"/>
             </div>
             <div class="col-md-2">
-                <label class="form-label">Amount (KES)</label>
+                <label class="form-label">Amount ({{ run_currency }})</label>
                 <input type="number" name="amount" class="form-control" step="0.01" min="0.01" required/>
             </div>
             <div class="col-md-3">

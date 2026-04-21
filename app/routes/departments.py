@@ -5,13 +5,15 @@ from app.extensions import db
 from app.models.department import Department
 from app.forms.department_forms import DepartmentForm
 from app.decorators.permissions import permission_required
+from app.utils.tenant import require_company_id
 
 departments_bp = Blueprint('departments', __name__)
 
 
 def _department_choices(exclude_id=None):
     """Choices for parent department: empty + all departments (optionally exclude one to avoid self-reference)."""
-    q = db.session.query(Department).order_by(Department.name)
+    cid = require_company_id()
+    q = db.session.query(Department).filter(Department.company_id == cid).order_by(Department.name)
     if exclude_id is not None:
         q = q.filter(Department.id != exclude_id)
     return [('', '-- None --')] + [(d.id, d.name) for d in q.all()]
@@ -21,7 +23,12 @@ def _department_choices(exclude_id=None):
 @login_required
 @permission_required('view_departments')
 def index():
-    departments = db.session.query(Department).order_by(Department.name).all()
+    departments = (
+        db.session.query(Department)
+        .filter(Department.company_id == require_company_id())
+        .order_by(Department.name)
+        .all()
+    )
     return render_template('departments/index.html', departments=departments)
 
 
@@ -32,12 +39,15 @@ def create():
     form = DepartmentForm()
     form.parent_id.choices = _department_choices()
     if form.validate_on_submit():
-        existing = db.session.query(Department).filter_by(code=form.code.data.strip().upper()).first()
+        cid = require_company_id()
+        code = form.code.data.strip().upper()
+        existing = db.session.query(Department).filter(Department.company_id == cid, Department.code == code).first()
         if existing:
             flash('A department with this code already exists.', 'danger')
             return render_template('departments/create.html', form=form)
         dept = Department(
-            code=form.code.data.strip().upper(),
+            company_id=cid,
+            code=code,
             name=form.name.data.strip(),
             description=form.description.data.strip() or None,
             parent_id=form.parent_id.data,
@@ -54,7 +64,7 @@ def create():
 @permission_required('view_departments')
 def view(id):
     dept = db.session.get(Department, id)
-    if dept is None:
+    if dept is None or dept.company_id != require_company_id():
         flash('Department not found.', 'danger')
         return redirect(url_for('departments.index'))
     employee_count = len(dept.employees) if dept.employees else 0
@@ -66,13 +76,14 @@ def view(id):
 @permission_required('manage_departments')
 def edit(id):
     dept = db.session.get(Department, id)
-    if dept is None:
+    if dept is None or dept.company_id != require_company_id():
         flash('Department not found.', 'danger')
         return redirect(url_for('departments.index'))
     form = DepartmentForm()
     form.parent_id.choices = _department_choices(exclude_id=id)
     if form.validate_on_submit():
         existing = db.session.query(Department).filter(
+            Department.company_id == dept.company_id,
             Department.code == form.code.data.strip().upper(),
             Department.id != id,
         ).first()

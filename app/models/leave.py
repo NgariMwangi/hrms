@@ -9,9 +9,12 @@ from app.models.base import BaseModel
 class LeaveType(BaseModel):
     """Leave type with rules: annual, sick, maternity, etc."""
     __tablename__ = 'leave_types'
-    __table_args__ = (db.Index('ix_leave_types_code', 'code'),)
+    __table_args__ = (db.UniqueConstraint('company_id', 'code', name='uq_leave_types_company_code'),)
 
-    code = db.Column(db.String(50), unique=True, nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    company = db.relationship('Company', backref='leave_types')
+
+    code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     days_per_year = db.Column(db.Numeric(6, 2), nullable=True)  # null = unlimited or manual
     accrues_monthly = db.Column(db.Boolean, default=False, nullable=False)
@@ -83,12 +86,18 @@ class PublicHoliday(BaseModel):
     Public holidays excluded from working-day leave counts.
     - kind 'recurring': same calendar month/day every year (country-fixed).
     - kind 'one_off': a single calendar date (extra holidays for a specific year only).
+    Scoped per tenant company and branch country (ISO 3166-1 alpha-2).
     """
     __tablename__ = 'public_holidays'
     __table_args__ = (
         db.Index('ix_public_holidays_kind', 'kind'),
         db.Index('ix_public_holidays_date', 'date'),
+        db.Index('ix_public_holidays_company_country', 'company_id', 'country_code'),
     )
+
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
+    country_code = db.Column(db.String(2), nullable=False, default='KE')
+    company = db.relationship('Company', backref='public_holidays')
 
     kind = db.Column(db.String(20), nullable=False, default='one_off')  # one_off | recurring
     name = db.Column(db.String(200), nullable=False)

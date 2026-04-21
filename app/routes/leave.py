@@ -33,6 +33,7 @@ from app.services.leave_balance_service import (
 )
 from app.services.public_holiday_service import public_holiday_dates_in_range
 from app.decorators.permissions import permission_required
+from app.utils.tenant import require_company_id
 from app.utils.date_helpers import (
     approved_leave_remaining_days,
     end_date_for_inclusive_leave_days,
@@ -44,29 +45,44 @@ from sqlalchemy.orm import joinedload
 leave_bp = Blueprint('leave', __name__)
 
 
-def _days_requested_for_leave(lt: LeaveType, start: date, end: date) -> Decimal:
+def _leave_country_for_employee(emp: Employee | None) -> str:
+    if not emp or not emp.branch:
+        return 'KE'
+    return (emp.branch.country_code or 'KE').upper()[:2]
+
+
+def _days_requested_for_leave(
+    lt: LeaveType, start: date, end: date, *, company_id: int, country_code: str
+) -> Decimal:
     basis = (lt.days_count_basis or 'working').lower()
     if basis not in ('working', 'calendar'):
         basis = 'working'
-    excl = public_holiday_dates_in_range(start, end) if basis == 'working' else None
+    excl = (
+        public_holiday_dates_in_range(start, end, company_id, country_code)
+        if basis == 'working'
+        else None
+    )
     return Decimal(str(leave_days_between(start, end, basis, exclude_dates=excl)))
 
 
 def _active_leave_type_choices_for_employee(employee_id: int | None) -> list[tuple[int, str]]:
-    types_list = (
-        db.session.query(LeaveType).filter(LeaveType.is_active.is_(True)).order_by(LeaveType.name).all()
-    )
+    q = db.session.query(LeaveType).filter(LeaveType.is_active.is_(True))
     if not employee_id:
+        q = q.filter(LeaveType.company_id == require_company_id())
+        types_list = q.order_by(LeaveType.name).all()
         return [(lt.id, lt.name) for lt in types_list]
     emp = db.session.get(Employee, employee_id)
     if not emp:
+        q = q.filter(LeaveType.company_id == require_company_id())
+        types_list = q.order_by(LeaveType.name).all()
         return [(lt.id, lt.name) for lt in types_list]
+    types_list = q.filter(LeaveType.company_id == emp.company_id).order_by(LeaveType.name).all()
     visible = leave_types_visible_for_gender(types_list, normalize_gender(emp.gender))
     return [(lt.id, lt.name) for lt in visible]
 
 
 def _handover_employee_choices(exclude_employee_id: int | None) -> list[tuple[int, str]]:
-    """Active employees other than the person going on leave."""
+    """Active employees other than the person going on leave (same company only)."""
     q = (
         db.session.query(Employee)
         .filter(Employee.status == 'active')
@@ -74,6 +90,11 @@ def _handover_employee_choices(exclude_employee_id: int | None) -> list[tuple[in
     )
     if exclude_employee_id:
         q = q.filter(Employee.id != exclude_employee_id)
+        ex = db.session.get(Employee, exclude_employee_id)
+        if ex:
+            q = q.filter(Employee.company_id == ex.company_id)
+    else:
+        q = q.filter(Employee.company_id == require_company_id())
     return [(e.id, f'{e.employee_number} — {e.full_name}') for e in q.all()]
 
 
@@ -112,10 +133,16 @@ def _apply_leave_type_form(form: LeaveTypeForm, lt: LeaveType) -> None:
 @login_required
 def index():
     """Leave list - my requests or all (for HR/manager)."""
-    q = db.session.query(LeaveRequest).options(
-        joinedload(LeaveRequest.leave_type),
-        joinedload(LeaveRequest.employee),
-        joinedload(LeaveRequest.handover_to),
+    cid = require_company_id()
+    q = (
+        db.session.query(LeaveRequest)
+        .join(Employee, LeaveRequest.employee_id == Employee.id)
+        .filter(Employee.company_id == cid)
+        .options(
+            joinedload(LeaveRequest.leave_type),
+            joinedload(LeaveRequest.employee),
+            joinedload(LeaveRequest.handover_to),
+        )
     )
     if current_user.has_permission('approve_leave'):
         requests = q.order_by(LeaveRequest.created_at.desc()).all()
@@ -134,7 +161,14 @@ def index():
         basis = (r.leave_type.days_count_basis or 'working').lower()
         if basis not in ('working', 'calendar'):
             basis = 'working'
-        excl = public_holiday_dates_in_range(r.start_date, r.end_date) if basis == 'working' else None
+        emp_row = r.employee
+        co = emp_row.company_id if emp_row else cid
+        cc = _leave_country_for_employee(emp_row)
+        excl = (
+            public_holiday_dates_in_range(r.start_date, r.end_date, co, cc)
+            if basis == 'working'
+            else None
+        )
         remaining_days[r.id] = approved_leave_remaining_days(
             r.start_date, r.end_date, basis, today=today, exclude_dates=excl
         )
@@ -155,8 +189,14 @@ def index():
 @login_required
 def request_leave():
     form = LeaveRequestForm()
-    form.leave_type_id.choices = [(lt.id, lt.name) for lt in db.session.query(LeaveType).filter(LeaveType.is_active == True).order_by(LeaveType.name).all()]
     emp_id = current_user.employee_id
+    emp_me = db.session.get(Employee, emp_id) if emp_id else None
+    lt_q = db.session.query(LeaveType).filter(LeaveType.is_active == True)
+    if emp_me:
+        lt_q = lt_q.filter(LeaveType.company_id == emp_me.company_id)
+    else:
+        lt_q = lt_q.filter(LeaveType.company_id == require_company_id())
+    form.leave_type_id.choices = [(lt.id, lt.name) for lt in lt_q.order_by(LeaveType.name).all()]
     handover_required = _apply_handover_field(form, emp_id)
     if form.validate_on_submit():
         if not emp_id:
@@ -176,9 +216,16 @@ def request_leave():
                 handover_required=handover_required,
             )
         ho_id = form.handover_to_id.data
+        emp_self = db.session.get(Employee, emp_id)
         if ho_id is not None:
             ho = db.session.get(Employee, ho_id)
-            if not ho or ho.status != 'active' or ho.id == emp_id:
+            if (
+                not ho
+                or ho.status != 'active'
+                or ho.id == emp_id
+                or not emp_self
+                or ho.company_id != emp_self.company_id
+            ):
                 flash('Invalid colleague selected for handover.', 'danger')
                 return render_template(
                     'leave/my_requests.html',
@@ -187,7 +234,7 @@ def request_leave():
                     handover_required=handover_required,
                 )
         lt = db.session.get(LeaveType, form.leave_type_id.data)
-        if not lt:
+        if not lt or not emp_self or lt.company_id != emp_self.company_id:
             flash('Invalid leave type.', 'danger')
             return render_template(
                 'leave/my_requests.html',
@@ -195,7 +242,13 @@ def request_leave():
                 balance_preview_requires_employee_id=False,
                 handover_required=handover_required,
             )
-        days_requested = _days_requested_for_leave(lt, form.start_date.data, form.end_date.data)
+        days_requested = _days_requested_for_leave(
+            lt,
+            form.start_date.data,
+            form.end_date.data,
+            company_id=emp_self.company_id,
+            country_code=_leave_country_for_employee(emp_self),
+        )
         req_year = form.start_date.data.year
         if leave_type_uses_balance_ledger(lt):
             avail = get_available_days(emp_id, lt.id, req_year)
@@ -240,9 +293,10 @@ def admin_request_leave():
     """HR: submit leave on behalf of an employee (optionally approved immediately)."""
     pre_emp = request.args.get('employee_id', type=int)
     form = AdminLeaveRequestForm()
+    cid = require_company_id()
     employees = (
         db.session.query(Employee)
-        .filter(Employee.status == 'active')
+        .filter(Employee.company_id == cid, Employee.status == 'active')
         .order_by(Employee.last_name, Employee.first_name)
         .all()
     )
@@ -265,7 +319,7 @@ def admin_request_leave():
     if form.validate_on_submit():
         emp_id = form.employee_id.data
         emp = db.session.get(Employee, emp_id)
-        if not emp or emp.status != 'active':
+        if not emp or emp.status != 'active' or emp.company_id != require_company_id():
             flash('Invalid or inactive employee.', 'danger')
             return redirect(url_for('leave.admin_request_leave', employee_id=emp_id))
         handover_required_admin = _apply_handover_field(form, emp_id)
@@ -280,7 +334,12 @@ def admin_request_leave():
         ho_id = form.handover_to_id.data
         if ho_id is not None:
             ho = db.session.get(Employee, ho_id)
-            if not ho or ho.status != 'active' or ho.id == emp_id:
+            if (
+                not ho
+                or ho.status != 'active'
+                or ho.id == emp_id
+                or ho.company_id != emp.company_id
+            ):
                 flash('Invalid colleague selected for handover.', 'danger')
                 return render_template(
                     'leave/admin_request.html',
@@ -289,7 +348,7 @@ def admin_request_leave():
                     handover_required=handover_required_admin,
                 )
         lt = db.session.get(LeaveType, form.leave_type_id.data)
-        if not lt or not lt.is_active:
+        if not lt or not lt.is_active or lt.company_id != emp.company_id:
             flash('Invalid leave type.', 'danger')
             return render_template(
                 'leave/admin_request.html',
@@ -297,7 +356,13 @@ def admin_request_leave():
                 balance_preview_requires_employee_id=True,
                 handover_required=handover_required_admin,
             )
-        days_requested = _days_requested_for_leave(lt, form.start_date.data, form.end_date.data)
+        days_requested = _days_requested_for_leave(
+            lt,
+            form.start_date.data,
+            form.end_date.data,
+            company_id=emp.company_id,
+            country_code=_leave_country_for_employee(emp),
+        )
         req_year = form.start_date.data.year
         if leave_type_uses_balance_ledger(lt):
             avail = get_available_days(emp_id, lt.id, req_year)
@@ -363,6 +428,10 @@ def suggest_end_date():
     lt = db.session.get(LeaveType, leave_type_id)
     if not lt or not lt.is_active:
         return jsonify({'error': 'Invalid leave type'}), 404
+    emp_id = request.args.get('employee_id', type=int) or current_user.employee_id
+    emp = db.session.get(Employee, emp_id) if emp_id else None
+    if not emp or emp.company_id != require_company_id() or lt.company_id != emp.company_id:
+        return jsonify({'error': 'Invalid employee or leave type for this company'}), 400
     try:
         start = date.fromisoformat(start_raw)
     except ValueError:
@@ -377,7 +446,12 @@ def suggest_end_date():
         basis = 'working'
     exclude_h = None
     if basis == 'working':
-        exclude_h = public_holiday_dates_in_range(start, start + timedelta(days=400))
+        exclude_h = public_holiday_dates_in_range(
+            start,
+            start + timedelta(days=400),
+            emp.company_id,
+            _leave_country_for_employee(emp),
+        )
     end = end_date_for_inclusive_leave_days(start, total, basis, exclude_dates=exclude_h)
     basis_label = (
         'calendar days (including weekends)'
@@ -426,6 +500,10 @@ def leave_balance_preview():
     if year is None:
         year = date.today().year
 
+    emp_chk = db.session.get(Employee, employee_id)
+    if not emp_chk or emp_chk.company_id != require_company_id():
+        return jsonify({'error': 'Invalid employee'}), 403
+
     data = preview_leave_balance_for_apply(employee_id, leave_type_id, year)
     if data.get('error'):
         code = 404 if data['error'] in ('invalid_leave_type', 'invalid_employee') else 400
@@ -440,6 +518,9 @@ def approve(id):
     lr = db.session.get(LeaveRequest, id)
     if not lr or lr.status != 'pending':
         from flask import abort
+        abort(404)
+    emp_lr = db.session.get(Employee, lr.employee_id)
+    if not emp_lr or emp_lr.company_id != require_company_id():
         abort(404)
     form = LeaveApprovalForm()
     if form.validate_on_submit():
@@ -462,7 +543,12 @@ def approve(id):
 @permission_required('manage_leave_types')
 def types_index():
     """HR: list leave categories (annual, sick, etc.)."""
-    types_list = db.session.query(LeaveType).order_by(LeaveType.name).all()
+    types_list = (
+        db.session.query(LeaveType)
+        .filter(LeaveType.company_id == require_company_id())
+        .order_by(LeaveType.name)
+        .all()
+    )
     return render_template('leave/types.html', types_list=types_list)
 
 
@@ -473,10 +559,11 @@ def type_create():
     form = LeaveTypeForm()
     if form.validate_on_submit():
         code = form.code.data.strip().upper()
-        if db.session.query(LeaveType).filter_by(code=code).first():
+        cid = require_company_id()
+        if db.session.query(LeaveType).filter(LeaveType.company_id == cid, LeaveType.code == code).first():
             flash('A leave type with this code already exists.', 'danger')
             return render_template('leave/type_form.html', form=form, leave_type=None)
-        lt = LeaveType()
+        lt = LeaveType(company_id=cid)
         _apply_leave_type_form(form, lt)
         db.session.add(lt)
         db.session.commit()
@@ -490,12 +577,20 @@ def type_create():
 @permission_required('manage_leave_types')
 def type_edit(id):
     lt = db.session.get(LeaveType, id)
-    if not lt:
+    if not lt or lt.company_id != require_company_id():
         abort(404)
     form = LeaveTypeForm()
     if form.validate_on_submit():
         code = form.code.data.strip().upper()
-        existing = db.session.query(LeaveType).filter(LeaveType.code == code, LeaveType.id != id).first()
+        existing = (
+            db.session.query(LeaveType)
+            .filter(
+                LeaveType.company_id == lt.company_id,
+                LeaveType.code == code,
+                LeaveType.id != id,
+            )
+            .first()
+        )
         if existing:
             flash('Another leave type already uses this code.', 'danger')
             return render_template('leave/type_form.html', form=form, leave_type=lt)
@@ -525,7 +620,7 @@ def type_edit(id):
 @permission_required('manage_leave_types')
 def type_delete(id):
     lt = db.session.get(LeaveType, id)
-    if not lt:
+    if not lt or lt.company_id != require_company_id():
         flash('Leave type not found.', 'danger')
         return redirect(url_for('leave.types_index'))
     n_requests = (
@@ -564,16 +659,18 @@ def type_delete(id):
 @permission_required('manage_leave_types')
 def holidays_index():
     """HR: recurring (every year) + one-off holidays for a selected year."""
+    cid = require_company_id()
     year = request.args.get('year', type=int) or date.today().year
     recurring = (
         db.session.query(PublicHoliday)
-        .filter(PublicHoliday.kind == 'recurring')
+        .filter(PublicHoliday.company_id == cid, PublicHoliday.kind == 'recurring')
         .order_by(PublicHoliday.recurring_month, PublicHoliday.recurring_day)
         .all()
     )
     one_offs = (
         db.session.query(PublicHoliday)
         .filter(
+            PublicHoliday.company_id == cid,
             PublicHoliday.kind == 'one_off',
             PublicHoliday.date.isnot(None),
             extract('year', PublicHoliday.date) == year,
@@ -589,12 +686,17 @@ def holidays_index():
     )
 
 
-def _apply_public_holiday_form(form: PublicHolidayForm, existing_id: int | None) -> PublicHoliday | None:
+def _apply_public_holiday_form(
+    form: PublicHolidayForm, existing_id: int | None, company_id: int
+) -> PublicHoliday | None:
     """Build model from validated form; return None if duplicate."""
     name = form.name.data.strip()
+    cc = (form.country_code.data or 'KE').strip().upper()[:2]
     if form.kind.data == 'recurring':
         m, d = form.recurring_month.data, form.recurring_day.data
         q = db.session.query(PublicHoliday).filter(
+            PublicHoliday.company_id == company_id,
+            PublicHoliday.country_code == cc,
             PublicHoliday.kind == 'recurring',
             PublicHoliday.recurring_month == m,
             PublicHoliday.recurring_day == d,
@@ -605,6 +707,8 @@ def _apply_public_holiday_form(form: PublicHolidayForm, existing_id: int | None)
             flash('A fixed annual holiday already exists on that month and day.', 'danger')
             return None
         return PublicHoliday(
+            company_id=company_id,
+            country_code=cc,
             kind='recurring',
             name=name,
             recurring_month=m,
@@ -612,13 +716,26 @@ def _apply_public_holiday_form(form: PublicHolidayForm, existing_id: int | None)
             date=None,
         )
     d = form.holiday_date.data
-    q = db.session.query(PublicHoliday).filter(PublicHoliday.kind == 'one_off', PublicHoliday.date == d)
+    q = db.session.query(PublicHoliday).filter(
+        PublicHoliday.company_id == company_id,
+        PublicHoliday.country_code == cc,
+        PublicHoliday.kind == 'one_off',
+        PublicHoliday.date == d,
+    )
     if existing_id:
         q = q.filter(PublicHoliday.id != existing_id)
     if q.first():
         flash('A one-off public holiday already exists on that date.', 'danger')
         return None
-    return PublicHoliday(kind='one_off', name=name, date=d, recurring_month=None, recurring_day=None)
+    return PublicHoliday(
+        company_id=company_id,
+        country_code=cc,
+        kind='one_off',
+        name=name,
+        date=d,
+        recurring_month=None,
+        recurring_day=None,
+    )
 
 
 @leave_bp.route('/holidays/create', methods=['GET', 'POST'])
@@ -627,7 +744,7 @@ def _apply_public_holiday_form(form: PublicHolidayForm, existing_id: int | None)
 def holiday_create():
     form = PublicHolidayForm()
     if form.validate_on_submit():
-        h = _apply_public_holiday_form(form, existing_id=None)
+        h = _apply_public_holiday_form(form, existing_id=None, company_id=require_company_id())
         if h is None:
             return render_template('leave/holiday_form.html', form=form, holiday=None)
         db.session.add(h)
@@ -643,15 +760,16 @@ def holiday_create():
 @permission_required('manage_leave_types')
 def holiday_edit(id):
     h = db.session.get(PublicHoliday, id)
-    if not h:
+    if not h or h.company_id != require_company_id():
         abort(404)
     form = PublicHolidayForm()
     if form.validate_on_submit():
-        new = _apply_public_holiday_form(form, existing_id=h.id)
+        new = _apply_public_holiday_form(form, existing_id=h.id, company_id=h.company_id)
         if new is None:
             return render_template('leave/holiday_form.html', form=form, holiday=h)
         h.kind = new.kind
         h.name = new.name
+        h.country_code = new.country_code
         h.date = new.date
         h.recurring_month = new.recurring_month
         h.recurring_day = new.recurring_day
@@ -661,6 +779,7 @@ def holiday_edit(id):
         return redirect(url_for('leave.holidays_index', year=red_year))
     if request.method == 'GET':
         form.name.data = h.name
+        form.country_code.data = (h.country_code or 'KE').upper()
         if getattr(h, 'kind', None) == 'recurring' or (
             h.recurring_month is not None and h.recurring_day is not None
         ):
@@ -678,7 +797,7 @@ def holiday_edit(id):
 @permission_required('manage_leave_types')
 def holiday_delete(id):
     h = db.session.get(PublicHoliday, id)
-    if not h:
+    if not h or h.company_id != require_company_id():
         flash('Holiday not found.', 'danger')
         return redirect(url_for('leave.holidays_index'))
     return_year = request.form.get('return_year', type=int) or date.today().year
@@ -692,9 +811,13 @@ def holiday_delete(id):
 
 
 def _ledger_leave_types():
+    cid = require_company_id()
     return [
         lt
-        for lt in db.session.query(LeaveType).filter(LeaveType.is_active.is_(True)).order_by(LeaveType.name).all()
+        for lt in db.session.query(LeaveType)
+        .filter(LeaveType.company_id == cid, LeaveType.is_active.is_(True))
+        .order_by(LeaveType.name)
+        .all()
         if leave_type_uses_balance_ledger(lt)
     ]
 
@@ -717,7 +840,7 @@ def balances():
 
     if request.method == 'POST' and request.form.get('save_balances') and employee_id:
         emp = db.session.get(Employee, employee_id)
-        if not emp:
+        if not emp or emp.company_id != require_company_id():
             flash('Employee not found.', 'danger')
             return redirect(url_for('leave.balances'))
         for lt in ledger_types:
@@ -748,15 +871,25 @@ def balances():
                 flash('"To year" must be exactly one year after "From year".', 'danger')
             else:
                 try:
-                    count, msgs = rollover_opening_for_next_year(fy, ty, as_of=today)
+                    count, msgs = rollover_opening_for_next_year(
+                        fy, ty, company_id=require_company_id(), as_of=today
+                    )
                     for m in msgs:
                         flash(m, 'success')
                 except ValueError as e:
                     flash(str(e), 'danger')
         return redirect(url_for('leave.balances'))
 
-    employees = db.session.query(Employee).order_by(Employee.last_name, Employee.first_name).all()
+    cid = require_company_id()
+    employees = (
+        db.session.query(Employee)
+        .filter(Employee.company_id == cid)
+        .order_by(Employee.last_name, Employee.first_name)
+        .all()
+    )
     employee = db.session.get(Employee, employee_id) if employee_id else None
+    if employee and employee.company_id != cid:
+        employee = None
 
     balance_rows = []
     if employee and ledger_types:

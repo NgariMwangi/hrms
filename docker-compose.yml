@@ -1,5 +1,6 @@
 services:
   web:
+    restart: unless-stopped
     build: .
     container_name: hrms_kenya
     environment:

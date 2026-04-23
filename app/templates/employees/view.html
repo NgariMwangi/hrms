@@ -7,6 +7,16 @@
         <div class="card mb-3">
             <div class="card-header">Personal</div>
             <div class="card-body">
+                {% if employee.photo_url %}
+                <div class="mb-3">
+                    <img
+                        src="{{ url_for('employees.photo', id=employee.id) }}"
+                        alt="{{ employee.full_name }} photo"
+                        class="img-thumbnail"
+                        style="max-width: 180px; max-height: 180px; object-fit: cover;"
+                    >
+                </div>
+                {% endif %}
                 <p class="mb-1"><strong>DOB:</strong> {{ employee.date_of_birth.strftime('%d %b %Y') if employee.date_of_birth else '-' }}</p>
                 <p class="mb-1"><strong>Gender:</strong> {{ employee.gender or '-' }}</p>
                 <p class="mb-1"><strong>National ID:</strong> {{ employee.national_id or '-' }}</p>

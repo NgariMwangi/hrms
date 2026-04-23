@@ -230,6 +230,10 @@ def create():
                 swift_code=form.swift_code.data or None,
             )
             db.session.add(emp)
+            db.session.flush()
+            photo = request.files.get('photo')
+            if photo and photo.filename:
+                emp.photo_url = _save_employee_photo(photo, emp.id)
             db.session.commit()
             log_create('Employee', emp.id, model_to_audit_dict(emp), user_id=current_user.id, description='Employee created')
             flash('Employee created successfully.', 'success')
@@ -254,6 +258,44 @@ def view(id):
         from flask import abort
         abort(403)
     return render_template('employees/view.html', employee=emp)
+
+
+@employees_bp.route('/<int:id>/photo')
+@login_required
+def photo(id):
+    """Open employee photo from storage."""
+    emp = db.session.get(Employee, id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    if (current_user.employee_id or 0) != emp.id and not current_user.has_permission('view_employees'):
+        abort(403)
+    rel_path = (emp.photo_url or '').replace('\\', '/').lstrip('/').strip()
+    if not rel_path:
+        abort(404)
+    if rel_path.startswith('cld::'):
+        parts = rel_path.split('::', 2)
+        if len(parts) != 3 or not cloudinary_url:
+            abort(404)
+        _prefix, resource_type, public_id = parts
+        file_url, _ = cloudinary_url(
+            public_id,
+            resource_type=resource_type or 'image',
+            secure=True,
+        )
+        return redirect(file_url)
+    upload_root = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
+    full_path = os.path.abspath(os.path.join(upload_root, rel_path))
+    if not full_path.startswith(upload_root + os.sep):
+        abort(403)
+    if not os.path.exists(full_path) or not os.path.isfile(full_path):
+        abort(404)
+    mime, _ = mimetypes.guess_type(full_path)
+    return send_file(
+        full_path,
+        mimetype=mime or 'application/octet-stream',
+        as_attachment=False,
+        download_name=os.path.basename(full_path),
+    )
 
 
 @employees_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
@@ -287,49 +329,56 @@ def edit(id):
         .all()
     ]
     if form.validate_on_submit():
-        branch = db.session.get(Branch, form.branch_id.data)
-        if not branch or branch.company_id != cid:
-            flash('Select a valid branch for this company.', 'danger')
-            return render_template('employees/edit.html', form=form, employee=emp)
-        old = model_to_audit_dict(emp)
-        emp.branch_id = branch.id
-        emp.first_name = form.first_name.data
-        emp.last_name = form.last_name.data
-        emp.middle_name = form.middle_name.data or None
-        emp.date_of_birth = form.date_of_birth.data
-        emp.gender = form.gender.data or None
-        emp.marital_status = form.marital_status.data or None
-        emp.nationality = form.nationality.data or None
-        emp.national_id = form.national_id.data or None
-        emp.passport_number = form.passport_number.data or None
-        emp.kra_pin = form.kra_pin.data or None
-        emp.nssf_number = form.nssf_number.data or None
-        emp.nhif_number = form.nhif_number.data or None
-        emp.email = form.email.data or None
-        emp.phone = normalize_phone_ke(form.phone.data) if form.phone.data else None
-        emp.phone_alt = normalize_phone_ke(form.phone_alt.data) if form.phone_alt.data else None
-        emp.address = form.address.data or None
-        emp.postal_address = form.postal_address.data or None
-        emp.emergency_contact_name = form.emergency_contact_name.data or None
-        emp.emergency_contact_phone = form.emergency_contact_phone.data or None
-        emp.department_id = form.department_id.data or None
-        emp.job_title_id = form.job_title_id.data or None
-        emp.manager_id = form.manager_id.data or None
-        emp.status = form.status.data
-        emp.employment_type = form.employment_type.data or None
-        emp.hire_date = form.hire_date.data
-        emp.probation_end_date = form.probation_end_date.data
-        emp.confirmation_date = form.confirmation_date.data
-        emp.contract_end_date = form.contract_end_date.data
-        emp.bank_name = form.bank_name.data or None
-        emp.bank_branch = form.bank_branch.data or None
-        emp.bank_account_number = form.bank_account_number.data or None
-        emp.bank_code = form.bank_code.data or None
-        emp.swift_code = form.swift_code.data or None
-        db.session.commit()
-        log_update('Employee', emp.id, old, model_to_audit_dict(emp), user_id=current_user.id, description='Employee updated')
-        flash('Employee updated.', 'success')
-        return redirect(url_for('employees.view', id=emp.id))
+        try:
+            branch = db.session.get(Branch, form.branch_id.data)
+            if not branch or branch.company_id != cid:
+                flash('Select a valid branch for this company.', 'danger')
+                return render_template('employees/edit.html', form=form, employee=emp)
+            old = model_to_audit_dict(emp)
+            emp.branch_id = branch.id
+            emp.first_name = form.first_name.data
+            emp.last_name = form.last_name.data
+            emp.middle_name = form.middle_name.data or None
+            emp.date_of_birth = form.date_of_birth.data
+            emp.gender = form.gender.data or None
+            emp.marital_status = form.marital_status.data or None
+            emp.nationality = form.nationality.data or None
+            emp.national_id = form.national_id.data or None
+            emp.passport_number = form.passport_number.data or None
+            emp.kra_pin = form.kra_pin.data or None
+            emp.nssf_number = form.nssf_number.data or None
+            emp.nhif_number = form.nhif_number.data or None
+            emp.email = form.email.data or None
+            emp.phone = normalize_phone_ke(form.phone.data) if form.phone.data else None
+            emp.phone_alt = normalize_phone_ke(form.phone_alt.data) if form.phone_alt.data else None
+            emp.address = form.address.data or None
+            emp.postal_address = form.postal_address.data or None
+            emp.emergency_contact_name = form.emergency_contact_name.data or None
+            emp.emergency_contact_phone = form.emergency_contact_phone.data or None
+            emp.department_id = form.department_id.data or None
+            emp.job_title_id = form.job_title_id.data or None
+            emp.manager_id = form.manager_id.data or None
+            emp.status = form.status.data
+            emp.employment_type = form.employment_type.data or None
+            emp.hire_date = form.hire_date.data
+            emp.probation_end_date = form.probation_end_date.data
+            emp.confirmation_date = form.confirmation_date.data
+            emp.contract_end_date = form.contract_end_date.data
+            emp.bank_name = form.bank_name.data or None
+            emp.bank_branch = form.bank_branch.data or None
+            emp.bank_account_number = form.bank_account_number.data or None
+            emp.bank_code = form.bank_code.data or None
+            emp.swift_code = form.swift_code.data or None
+            photo = request.files.get('photo')
+            if photo and photo.filename:
+                emp.photo_url = _save_employee_photo(photo, emp.id, old_photo_path=emp.photo_url)
+            db.session.commit()
+            log_update('Employee', emp.id, old, model_to_audit_dict(emp), user_id=current_user.id, description='Employee updated')
+            flash('Employee updated.', 'success')
+            return redirect(url_for('employees.view', id=emp.id))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Could not update employee: {str(e)}', 'danger')
     return render_template('employees/edit.html', form=form, employee=emp)
 
 
@@ -550,6 +599,86 @@ def link_user(id):
 def _allowed_file(filename):
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     return ext in current_app.config.get('ALLOWED_EXTENSIONS', {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'})
+
+
+def _allowed_image_file(filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    return ext in {'jpg', 'jpeg', 'png'}
+
+
+def _cloudinary_upload_employee_photo(file_storage, employee_id: int) -> str:
+    """Upload employee photo to Cloudinary and return cld reference."""
+    _configure_cloudinary()
+    original = secure_filename(file_storage.filename or 'photo')
+    upload_res = cloudinary.uploader.upload(
+        file_storage,
+        resource_type='image',
+        folder=current_app.config.get('CLOUDINARY_PHOTOS_FOLDER', 'hrms/employee_photos'),
+        public_id=f"employee_{employee_id}_{os.urandom(4).hex()}_{os.path.splitext(original)[0]}",
+        overwrite=False,
+        use_filename=False,
+    )
+    public_id = upload_res.get('public_id')
+    if not public_id:
+        raise ValueError('Cloudinary upload did not return a public_id.')
+    return f"cld::image::{public_id}"
+
+
+def _delete_employee_photo(stored_path: str | None):
+    """Delete old employee photo from Cloudinary or local storage."""
+    if not stored_path:
+        return
+    ref = stored_path.replace('\\', '/').lstrip('/').strip()
+    if not ref:
+        return
+    if ref.startswith('cld::'):
+        parts = ref.split('::', 2)
+        if len(parts) == 3 and cloudinary:
+            _prefix, resource_type, public_id = parts
+            try:
+                _configure_cloudinary()
+                cloudinary.uploader.destroy(public_id, resource_type=resource_type or 'image', invalidate=True)
+            except Exception:
+                current_app.logger.warning('Could not delete old cloud employee photo: %s', public_id)
+        return
+    upload_root = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
+    old_full = os.path.abspath(os.path.join(upload_root, ref))
+    if old_full.startswith(upload_root + os.sep) and os.path.exists(old_full) and os.path.isfile(old_full):
+        try:
+            os.remove(old_full)
+        except OSError:
+            current_app.logger.warning('Could not delete old employee photo: %s', old_full)
+
+
+def _save_employee_photo(file_storage, employee_id: int, old_photo_path: str | None = None) -> str:
+    """Store employee photo and return Cloudinary ref or relative local path."""
+    if not file_storage or not file_storage.filename:
+        return old_photo_path or ''
+    if not _allowed_image_file(file_storage.filename):
+        raise ValueError('Photo type not allowed. Use JPG or PNG.')
+    stored_path = ''
+    if _cloudinary_enabled():
+        try:
+            stored_path = _cloudinary_upload_employee_photo(file_storage, employee_id)
+        except Exception:
+            current_app.logger.exception('Cloudinary photo upload failed; falling back to local storage.')
+            try:
+                file_storage.stream.seek(0)
+            except Exception:
+                pass
+    if not stored_path:
+        upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'employee_photos', str(employee_id))
+        os.makedirs(upload_dir, exist_ok=True)
+        filename = secure_filename(file_storage.filename)
+        base, ext = os.path.splitext(filename)
+        unique = f"{base}_{os.urandom(4).hex()}{ext.lower()}"
+        stored_path = os.path.join('employee_photos', str(employee_id), unique).replace('\\', '/')
+        full_path = os.path.join(current_app.config['UPLOAD_FOLDER'], stored_path)
+        file_storage.save(full_path)
+
+    if old_photo_path and old_photo_path != stored_path:
+        _delete_employee_photo(old_photo_path)
+    return stored_path
 
 
 def _can_access_employee_documents(employee_id: int) -> bool:

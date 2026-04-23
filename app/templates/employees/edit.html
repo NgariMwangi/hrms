@@ -5,7 +5,7 @@
 {% if not form.branch_id.choices %}
 <div class="alert alert-warning mb-3">No branches exist for this company. Add one under <strong>Organization → Branches</strong> before you can save this profile.</div>
 {% endif %}
-<form method="post" action="{{ url_for('employees.edit', id=employee.id) }}">
+<form method="post" action="{{ url_for('employees.edit', id=employee.id) }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">
         <div class="col-md-4"><label class="form-label">First Name *</label><input type="text" name="first_name" class="form-control" required value="{{ form.first_name.data or employee.first_name }}"></div>
@@ -19,6 +19,7 @@
         <div class="col-md-3"><label class="form-label">NHIF/SHIF No</label><input type="text" name="nhif_number" class="form-control" value="{{ form.nhif_number.data or employee.nhif_number or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Email</label><input type="email" name="email" class="form-control" value="{{ form.email.data or employee.email or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Phone</label><input type="text" name="phone" class="form-control" value="{{ form.phone.data or employee.phone or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Photo</label><input type="file" name="photo" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png">{% if employee.photo_url %}<div class="form-text">Current photo is on file. Uploading a new one will replace it.</div>{% endif %}</div>
         <div class="col-12"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2">{{ form.address.data or employee.address or '' }}</textarea></div>
         <div class="col-md-4">{{ form.department_id.label(class='form-label') }}{{ form.department_id(class='form-select') }}</div>
         <div class="col-md-4">{{ form.job_title_id.label(class='form-label') }}{{ form.job_title_id(class='form-select') }}</div>

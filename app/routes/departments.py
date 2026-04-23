@@ -108,3 +108,25 @@ def edit(id):
         form.description.data = dept.description or ''
         form.parent_id.data = dept.parent_id
     return render_template('departments/edit.html', form=form, department=dept)
+
+
+@departments_bp.route('/<int:id>/delete', methods=['POST'])
+@login_required
+@permission_required('manage_departments')
+def delete(id):
+    dept = db.session.get(Department, id)
+    if dept is None or dept.company_id != require_company_id():
+        flash('Department not found.', 'danger')
+        return redirect(url_for('departments.index'))
+    employee_count = len(dept.employees) if dept.employees else 0
+    if employee_count > 0:
+        flash(f'Cannot delete: {employee_count} employee(s) are assigned to this department.', 'danger')
+        return redirect(url_for('departments.view', id=id))
+    child_count = len(dept.children) if dept.children else 0
+    if child_count > 0:
+        flash(f'Cannot delete: {child_count} sub-department(s) exist under this department.', 'danger')
+        return redirect(url_for('departments.view', id=id))
+    db.session.delete(dept)
+    db.session.commit()
+    flash('Department deleted.', 'success')
+    return redirect(url_for('departments.index'))

@@ -13,12 +13,11 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead>
-                    <tr><th>Code</th><th>Name</th><th>Taxable</th><th>Pensionable</th><th class="text-end">Actions</th></tr>
+                    <tr><th>Name</th><th>Taxable</th><th>Pensionable</th><th class="text-end">Actions</th></tr>
                 </thead>
                 <tbody>
                 {% for a in allowances %}
                 <tr>
-                    <td><span class="fw-medium">{{ a.code }}</span></td>
                     <td><a href="{{ url_for('allowances.view', id=a.id) }}" class="text-decoration-none">{{ a.name }}</a></td>
                     <td>{{ 'Yes' if a.is_taxable else 'No' }}</td>
                     <td>{{ 'Yes' if a.is_pensionable else 'No' }}</td>
@@ -26,11 +25,15 @@
                         <a href="{{ url_for('allowances.view', id=a.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                         {% if has_permission('manage_departments') %}
                         <a href="{{ url_for('allowances.edit', id=a.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <form method="post" action="{{ url_for('allowances.delete', id=a.id) }}" class="d-inline" onsubmit="return confirm('Delete this allowance?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
                         {% endif %}
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-muted py-4 text-center">No allowances. Add one (e.g. House, Transport, Meal).</td></tr>
+                <tr><td colspan="4" class="text-muted py-4 text-center">No allowances. Add one (e.g. House, Transport, Meal).</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

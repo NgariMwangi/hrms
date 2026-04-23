@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from flask import Flask
+from flask_wtf.csrf import CSRFError
 from dotenv import load_dotenv
 from sqlalchemy.exc import ProgrammingError
 
@@ -253,7 +254,7 @@ def _register_blueprints(app):
 
 def _register_error_handlers(app):
     """Register custom error handlers."""
-    from flask import render_template
+    from flask import render_template, redirect, url_for, request, flash
 
     @app.errorhandler(403)
     def forbidden(e):
@@ -266,6 +267,15 @@ def _register_error_handlers(app):
     @app.errorhandler(500)
     def server_error(e):
         return render_template('errors/500.html'), 500
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        """
+        Handle expired/invalid CSRF tokens gracefully.
+        Common when a user leaves a form open and session expires.
+        """
+        flash('Your session expired. Please log in again and retry.', 'warning')
+        return redirect(url_for('auth.login', next=request.path))
 
 
 def _register_context_processors(app):

@@ -42,11 +42,14 @@ body.app-body {
   left: 0;
   width: var(--sidebar-width);
   height: 100vh;
+  height: 100dvh;
   max-height: 100vh;
+  max-height: 100dvh;
   z-index: 1030;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow-x: hidden;
+  overflow-y: hidden;
   background: linear-gradient(165deg, var(--sidebar-bg-1) 0%, var(--sidebar-bg-2) 48%, #0d1226 100%);
   color: rgba(255, 255, 255, 0.88);
   box-shadow: 4px 0 32px rgba(0, 0, 0, 0.15);
@@ -89,8 +92,10 @@ body.app-body {
 }
 
 .app-sidebar .nav {
-  flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  display: block;
+  flex-wrap: nowrap;
   padding: 0.65rem 0.6rem 0.85rem;
   overflow-y: auto;
   overflow-x: hidden;
@@ -122,8 +127,13 @@ body.app-body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  min-width: 0;
+  width: 100%;
   font-size: 0.9rem;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border-radius: var(--radius-md);
   border-left: none !important;
   transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
@@ -148,7 +158,6 @@ body.app-body {
 }
 
 .app-sidebar .sidebar-footer {
-  flex-shrink: 0;
   padding: 1rem 1rem 1.25rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -176,7 +185,14 @@ body.app-body {
   border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+.app-sidebar .sidebar-nav-toggle > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-sidebar .sidebar-nav-toggle:hover {

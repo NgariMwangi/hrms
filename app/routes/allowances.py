@@ -30,11 +30,13 @@ def create():
     form = AllowanceForm()
     if form.validate_on_submit():
         cid = require_company_id()
-        code = form.code.data.strip().upper()
-        existing = db.session.query(Allowance).filter(Allowance.company_id == cid, Allowance.code == code).first()
-        if existing:
-            flash('An allowance with this code already exists.', 'danger')
-            return render_template('allowances/create.html', form=form)
+        code_raw = (form.code.data or '').strip()
+        code = code_raw.upper() if code_raw else None
+        if code:
+            existing = db.session.query(Allowance).filter(Allowance.company_id == cid, Allowance.code == code).first()
+            if existing:
+                flash('An allowance with this code already exists.', 'danger')
+                return render_template('allowances/create.html', form=form)
         a = Allowance(
             company_id=cid,
             code=code,
@@ -71,19 +73,22 @@ def edit(id):
         return redirect(url_for('allowances.index'))
     form = AllowanceForm()
     if form.validate_on_submit():
-        existing = (
-            db.session.query(Allowance)
-            .filter(
-                Allowance.company_id == a.company_id,
-                Allowance.code == form.code.data.strip().upper(),
-                Allowance.id != id,
+        code_raw = (form.code.data or '').strip()
+        code = code_raw.upper() if code_raw else None
+        if code:
+            existing = (
+                db.session.query(Allowance)
+                .filter(
+                    Allowance.company_id == a.company_id,
+                    Allowance.code == code,
+                    Allowance.id != id,
+                )
+                .first()
             )
-            .first()
-        )
-        if existing:
-            flash('An allowance with this code already exists.', 'danger')
-            return render_template('allowances/edit.html', form=form, allowance=a)
-        a.code = form.code.data.strip().upper()
+            if existing:
+                flash('An allowance with this code already exists.', 'danger')
+                return render_template('allowances/edit.html', form=form, allowance=a)
+        a.code = code
         a.name = form.name.data.strip()
         a.description = form.description.data.strip() or None
         a.is_taxable = form.is_taxable.data

@@ -24,6 +24,10 @@
                         <a href="{{ url_for('departments.view', id=d.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                         {% if has_permission('manage_departments') %}
                         <a href="{{ url_for('departments.edit', id=d.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <form method="post" action="{{ url_for('departments.delete', id=d.id) }}" class="d-inline" onsubmit="return confirm('Delete this department?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
                         {% endif %}
                     </td>
                 </tr>

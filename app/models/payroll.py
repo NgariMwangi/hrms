@@ -14,7 +14,7 @@ class Allowance(BaseModel):
     company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
     company = db.relationship('Company', backref='allowances')
 
-    code = db.Column(db.String(50), nullable=False)
+    code = db.Column(db.String(50), nullable=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.String(500), nullable=True)
     is_taxable = db.Column(db.Boolean, default=True, nullable=False)

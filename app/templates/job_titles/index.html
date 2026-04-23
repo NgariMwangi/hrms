@@ -12,12 +12,11 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead>
-                    <tr><th>Code</th><th>Name</th><th>Grade</th><th>Description</th><th class="text-end">Actions</th></tr>
+                    <tr><th>Name</th><th>Grade</th><th>Description</th><th class="text-end">Actions</th></tr>
                 </thead>
                 <tbody>
                 {% for j in job_titles %}
                 <tr>
-                    <td><span class="fw-medium">{{ j.code }}</span></td>
                     <td><a href="{{ url_for('job_titles.view', id=j.id) }}" class="text-decoration-none">{{ j.name }}</a></td>
                     <td>{{ j.grade or '—' }}</td>
                     <td class="text-muted small">{{ (j.description or '—')[:60] }}{% if j.description and j.description|length > 60 %}…{% endif %}</td>
@@ -25,11 +24,15 @@
                         <a href="{{ url_for('job_titles.view', id=j.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                         {% if has_permission('manage_departments') %}
                         <a href="{{ url_for('job_titles.edit', id=j.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <form method="post" action="{{ url_for('job_titles.delete', id=j.id) }}" class="d-inline" onsubmit="return confirm('Delete this job title?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
                         {% endif %}
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-muted py-4 text-center">No job titles. {% if has_permission('manage_departments') %}Add one to get started.{% endif %}</td></tr>
+                <tr><td colspan="4" class="text-muted py-4 text-center">No job titles. {% if has_permission('manage_departments') %}Add one to get started.{% endif %}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

@@ -40,11 +40,13 @@ def create():
     form.parent_id.choices = _department_choices()
     if form.validate_on_submit():
         cid = require_company_id()
-        code = form.code.data.strip().upper()
-        existing = db.session.query(Department).filter(Department.company_id == cid, Department.code == code).first()
-        if existing:
-            flash('A department with this code already exists.', 'danger')
-            return render_template('departments/create.html', form=form)
+        code_raw = (form.code.data or '').strip()
+        code = code_raw.upper() if code_raw else None
+        if code:
+            existing = db.session.query(Department).filter(Department.company_id == cid, Department.code == code).first()
+            if existing:
+                flash('A department with this code already exists.', 'danger')
+                return render_template('departments/create.html', form=form)
         dept = Department(
             company_id=cid,
             code=code,
@@ -82,15 +84,18 @@ def edit(id):
     form = DepartmentForm()
     form.parent_id.choices = _department_choices(exclude_id=id)
     if form.validate_on_submit():
-        existing = db.session.query(Department).filter(
-            Department.company_id == dept.company_id,
-            Department.code == form.code.data.strip().upper(),
-            Department.id != id,
-        ).first()
-        if existing:
-            flash('A department with this code already exists.', 'danger')
-            return render_template('departments/edit.html', form=form, department=dept)
-        dept.code = form.code.data.strip().upper()
+        code_raw = (form.code.data or '').strip()
+        code = code_raw.upper() if code_raw else None
+        if code:
+            existing = db.session.query(Department).filter(
+                Department.company_id == dept.company_id,
+                Department.code == code,
+                Department.id != id,
+            ).first()
+            if existing:
+                flash('A department with this code already exists.', 'danger')
+                return render_template('departments/edit.html', form=form, department=dept)
+        dept.code = code
         dept.name = form.name.data.strip()
         dept.description = form.description.data.strip() or None
         dept.parent_id = form.parent_id.data

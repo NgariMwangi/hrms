@@ -8,8 +8,8 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="row g-3">
                 <div class="col-md-4">
-                    <label class="form-label">Code *</label>
-                    <input type="text" name="code" class="form-control" required maxlength="50" value="{{ form.code.data or '' }}" placeholder="e.g. MGR">
+                    <label class="form-label">Code</label>
+                    <input type="text" name="code" class="form-control" maxlength="50" value="{{ form.code.data or '' }}" placeholder="Optional">
                     {% if form.code.errors %}<div class="text-danger small">{{ form.code.errors[0] }}</div>{% endif %}
                 </div>
                 <div class="col-md-8">

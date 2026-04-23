@@ -12,12 +12,11 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead>
-                    <tr><th>Code</th><th>Name</th><th>Parent</th><th>Description</th><th class="text-end">Actions</th></tr>
+                    <tr><th>Name</th><th>Parent</th><th>Description</th><th class="text-end">Actions</th></tr>
                 </thead>
                 <tbody>
                 {% for d in departments %}
                 <tr>
-                    <td><span class="fw-medium">{{ d.code }}</span></td>
                     <td><a href="{{ url_for('departments.view', id=d.id) }}" class="text-decoration-none">{{ d.name }}</a></td>
                     <td>{{ d.parent.name if d.parent else '—' }}</td>
                     <td class="text-muted small">{{ (d.description or '—')[:60] }}{% if d.description and d.description|length > 60 %}…{% endif %}</td>
@@ -29,7 +28,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-muted py-4 text-center">No departments. {% if has_permission('manage_departments') %}Add one to get started.{% endif %}</td></tr>
+                <tr><td colspan="4" class="text-muted py-4 text-center">No departments. {% if has_permission('manage_departments') %}Add one to get started.{% endif %}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

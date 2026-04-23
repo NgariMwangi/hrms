@@ -16,7 +16,7 @@ class Department(BaseModel):
     company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'), nullable=False)
     company = db.relationship('Company', backref='departments')
 
-    code = db.Column(db.String(50), nullable=False)
+    code = db.Column(db.String(50), nullable=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey('departments.id', ondelete='SET NULL'), nullable=True)

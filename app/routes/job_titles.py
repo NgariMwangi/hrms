@@ -30,11 +30,13 @@ def create():
     form = JobTitleForm()
     if form.validate_on_submit():
         cid = require_company_id()
-        code = form.code.data.strip().upper()
-        existing = db.session.query(JobTitle).filter(JobTitle.company_id == cid, JobTitle.code == code).first()
-        if existing:
-            flash('A job title with this code already exists.', 'danger')
-            return render_template('job_titles/create.html', form=form)
+        code_raw = (form.code.data or '').strip()
+        code = code_raw.upper() if code_raw else None
+        if code:
+            existing = db.session.query(JobTitle).filter(JobTitle.company_id == cid, JobTitle.code == code).first()
+            if existing:
+                flash('A job title with this code already exists.', 'danger')
+                return render_template('job_titles/create.html', form=form)
         jt = JobTitle(
             company_id=cid,
             code=code,
@@ -71,19 +73,22 @@ def edit(id):
         return redirect(url_for('job_titles.index'))
     form = JobTitleForm()
     if form.validate_on_submit():
-        existing = (
-            db.session.query(JobTitle)
-            .filter(
-                JobTitle.company_id == jt.company_id,
-                JobTitle.code == form.code.data.strip().upper(),
-                JobTitle.id != id,
+        code_raw = (form.code.data or '').strip()
+        code = code_raw.upper() if code_raw else None
+        if code:
+            existing = (
+                db.session.query(JobTitle)
+                .filter(
+                    JobTitle.company_id == jt.company_id,
+                    JobTitle.code == code,
+                    JobTitle.id != id,
+                )
+                .first()
             )
-            .first()
-        )
-        if existing:
-            flash('A job title with this code already exists.', 'danger')
-            return render_template('job_titles/edit.html', form=form, job_title=jt)
-        jt.code = form.code.data.strip().upper()
+            if existing:
+                flash('A job title with this code already exists.', 'danger')
+                return render_template('job_titles/edit.html', form=form, job_title=jt)
+        jt.code = code
         jt.name = form.name.data.strip()
         jt.description = form.description.data.strip() or None
         jt.grade = form.grade.data.strip() or None

@@ -1,7 +1,7 @@
 {% extends "layouts/base.html" %}
 {% block title %}{{ employee.full_name }} - {{ app_name }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4">{{ employee.employee_number }} - {{ employee.full_name }}</h1>
+<h1 class="h3 mb-4">{{ employee.employee_number or 'No Number' }} - {{ employee.full_name }}</h1>
 <div class="row">
     <div class="col-md-6">
         <div class="card mb-3">

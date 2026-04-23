@@ -1,13 +1,14 @@
 {% extends "layouts/base.html" %}
 {% block title %}Edit {{ employee.full_name }} - {{ app_name }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4">Edit Employee: {{ employee.employee_number }}</h1>
+<h1 class="h3 mb-4">Edit Employee: {{ employee.employee_number or 'No Number' }}</h1>
 {% if not form.branch_id.choices %}
 <div class="alert alert-warning mb-3">No branches exist for this company. Add one under <strong>Organization → Branches</strong> before you can save this profile.</div>
 {% endif %}
 <form method="post" action="{{ url_for('employees.edit', id=employee.id) }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">
+        <div class="col-md-4"><label class="form-label">Employee Number</label><input type="text" name="employee_number" class="form-control" value="{{ form.employee_number.data or employee.employee_number or '' }}" placeholder="Optional"></div>
         <div class="col-md-4"><label class="form-label">First Name *</label><input type="text" name="first_name" class="form-control" required value="{{ form.first_name.data or employee.first_name }}"></div>
         <div class="col-md-4"><label class="form-label">Last Name *</label><input type="text" name="last_name" class="form-control" required value="{{ form.last_name.data or employee.last_name }}"></div>
         <div class="col-md-4"><label class="form-label">Middle Name</label><input type="text" name="middle_name" class="form-control" value="{{ form.middle_name.data or employee.middle_name or '' }}"></div>

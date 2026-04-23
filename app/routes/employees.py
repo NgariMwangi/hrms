@@ -33,25 +33,6 @@ except Exception:  # pragma: no cover
 employees_bp = Blueprint('employees', __name__)
 
 
-def _next_employee_number(company_id: int):
-    """Generate EMP-YYYY-#### (scoped per company)."""
-    year = date.today().year
-    prefix = f"{current_app.config.get('EMPLOYEE_NUMBER_PREFIX', 'EMP')}-{year}-"
-    last = (
-        db.session.query(Employee)
-        .filter(Employee.company_id == company_id, Employee.employee_number.startswith(prefix))
-        .order_by(Employee.id.desc())
-        .first()
-    )
-    num = 1
-    if last:
-        try:
-            num = int(last.employee_number.split('-')[-1]) + 1
-        except (IndexError, ValueError):
-            pass
-    return f"{prefix}{num:04d}"
-
-
 def _next_birthday_for_year(year: int, month: int, day: int):
     """Build birthday date in a given year with leap-year fallback."""
     try:
@@ -59,6 +40,13 @@ def _next_birthday_for_year(year: int, month: int, day: int):
     except ValueError:
         # Treat Feb 29 birthdays as Mar 1 on non-leap years.
         return date(year, 3, 1)
+
+
+def _clean_employee_number(raw_value: str | None):
+    if raw_value is None:
+        return None
+    value = raw_value.strip()
+    return value or None
 
 
 @employees_bp.route('/')
@@ -191,10 +179,20 @@ def create():
             if not branch or branch.company_id != cid:
                 flash('Select a valid branch for this company.', 'danger')
                 return render_template('employees/create.html', form=form)
+            employee_number = _clean_employee_number(form.employee_number.data)
+            if employee_number:
+                existing_emp = (
+                    db.session.query(Employee)
+                    .filter(Employee.company_id == cid, Employee.employee_number == employee_number)
+                    .first()
+                )
+                if existing_emp:
+                    flash('Employee number already exists. Use a different number.', 'danger')
+                    return render_template('employees/create.html', form=form)
             emp = Employee(
                 company_id=cid,
                 branch_id=branch.id,
-                employee_number=_next_employee_number(cid),
+                employee_number=employee_number,
                 first_name=form.first_name.data,
                 last_name=form.last_name.data,
                 middle_name=form.middle_name.data or None,
@@ -335,6 +333,21 @@ def edit(id):
                 flash('Select a valid branch for this company.', 'danger')
                 return render_template('employees/edit.html', form=form, employee=emp)
             old = model_to_audit_dict(emp)
+            employee_number = _clean_employee_number(form.employee_number.data)
+            if employee_number:
+                existing_emp = (
+                    db.session.query(Employee)
+                    .filter(
+                        Employee.company_id == cid,
+                        Employee.employee_number == employee_number,
+                        Employee.id != emp.id,
+                    )
+                    .first()
+                )
+                if existing_emp:
+                    flash('Employee number already exists. Use a different number.', 'danger')
+                    return render_template('employees/edit.html', form=form, employee=emp)
+            emp.employee_number = employee_number
             emp.branch_id = branch.id
             emp.first_name = form.first_name.data
             emp.last_name = form.last_name.data

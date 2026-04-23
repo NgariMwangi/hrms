@@ -10,8 +10,8 @@ class Employee(BaseModel):
     """Employee record: personal info, Kenyan IDs, employment details, bank."""
     __tablename__ = 'employees'
 
-    # Auto-generated
-    employee_number = db.Column(db.String(30), unique=True, nullable=False)
+    # Manual and optional (nullable for legacy/no-number records)
+    employee_number = db.Column(db.String(30), unique=True, nullable=True)
 
     # Personal
     first_name = db.Column(db.String(100), nullable=False)
@@ -78,4 +78,4 @@ class Employee(BaseModel):
         return ' '.join(parts)
 
     def __str__(self):
-        return f"{self.employee_number} - {self.full_name}"
+        return f"{self.employee_number or 'N/A'} - {self.full_name}"

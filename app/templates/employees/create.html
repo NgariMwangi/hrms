@@ -22,6 +22,7 @@
 <form method="post" action="{{ url_for('employees.create') }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">
+        <div class="col-md-4"><label class="form-label">Employee Number</label><input type="text" name="employee_number" class="form-control" value="{{ form.employee_number.data or '' }}" placeholder="Optional"></div>
         <div class="col-md-4"><label class="form-label">First Name *</label><input type="text" name="first_name" class="form-control" required value="{{ form.first_name.data or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Last Name *</label><input type="text" name="last_name" class="form-control" required value="{{ form.last_name.data or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Middle Name</label><input type="text" name="middle_name" class="form-control" value="{{ form.middle_name.data or '' }}"></div>

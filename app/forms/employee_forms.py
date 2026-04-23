@@ -41,6 +41,7 @@ def _validate_phone(form, field):
 
 class EmployeeForm(FlaskForm):
     """Create/Edit employee."""
+    employee_number = StringField('Employee Number', validators=[Optional()])
     first_name = StringField('First Name', validators=[DataRequired()])
     last_name = StringField('Last Name', validators=[DataRequired()])
     middle_name = StringField('Middle Name', validators=[Optional()])

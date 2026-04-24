@@ -105,7 +105,7 @@
         {% if salary_records %}
         <div class="table-responsive">
             <table class="table table-sm">
-                <thead><tr><th>Effective from</th><th>Basic ({{ currency_code }})</th><th>Pension %</th><th>Notes</th></tr></thead>
+                <thead><tr><th>Effective from</th><th>Basic ({{ currency_code }})</th><th>Pension %</th><th>Notes</th><th class="text-end">Actions</th></tr></thead>
                 <tbody>
                 {% for s in salary_records %}
                 <tr>
@@ -113,6 +113,13 @@
                     <td>{{ s.basic_salary|fmt_money(currency_code) }}</td>
                     <td>{{ s.pension_employee_percent or 0 }} / {{ s.pension_employer_percent or 0 }}</td>
                     <td>{{ s.notes or '-' }}</td>
+                    <td class="text-end">
+                        <a href="{{ url_for('employees.salary_edit', id=employee.id, salary_id=s.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <form method="post" action="{{ url_for('employees.salary_delete', id=employee.id, salary_id=s.id) }}" class="d-inline" onsubmit="return confirm('Delete this salary record?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
                 </tbody>

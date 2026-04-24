@@ -489,6 +489,53 @@ def salary(id):
     )
 
 
+@employees_bp.route('/<int:id>/salary/<int:salary_id>/edit', methods=['GET', 'POST'])
+@login_required
+@permission_required('edit_employees')
+def salary_edit(id, salary_id):
+    """Edit one salary history row for an employee."""
+    emp = db.session.get(Employee, id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    rec = db.session.query(EmployeeSalary).filter(
+        EmployeeSalary.id == salary_id,
+        EmployeeSalary.employee_id == id,
+    ).first()
+    if not rec:
+        abort(404)
+    form = EmployeeSalaryForm(obj=rec)
+    if form.validate_on_submit():
+        rec.basic_salary = form.basic_salary.data
+        rec.effective_from = form.effective_from.data
+        rec.pension_employee_percent = form.pension_employee_percent.data or None
+        rec.pension_employer_percent = form.pension_employer_percent.data or None
+        rec.notes = form.notes.data or None
+        db.session.commit()
+        flash('Salary record updated.', 'success')
+        return redirect(url_for('employees.salary', id=id))
+    return render_template('employees/salary_edit.html', employee=emp, salary_record=rec, form=form)
+
+
+@employees_bp.route('/<int:id>/salary/<int:salary_id>/delete', methods=['POST'])
+@login_required
+@permission_required('edit_employees')
+def salary_delete(id, salary_id):
+    """Delete one salary history row for an employee."""
+    emp = db.session.get(Employee, id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    rec = db.session.query(EmployeeSalary).filter(
+        EmployeeSalary.id == salary_id,
+        EmployeeSalary.employee_id == id,
+    ).first()
+    if not rec:
+        abort(404)
+    db.session.delete(rec)
+    db.session.commit()
+    flash('Salary record deleted.', 'success')
+    return redirect(url_for('employees.salary', id=id))
+
+
 @employees_bp.route('/<int:id>/deductions', methods=['GET', 'POST'])
 @login_required
 @permission_required('edit_employees')

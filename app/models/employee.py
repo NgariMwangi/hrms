@@ -31,7 +31,9 @@ class Employee(BaseModel):
 
     # Contact
     email = db.Column(db.String(255), nullable=True)
+    secondary_email = db.Column(db.String(255), nullable=True)
     phone = db.Column(db.String(30), nullable=True)
+    secondary_phone = db.Column(db.String(30), nullable=True)
     phone_alt = db.Column(db.String(30), nullable=True)
     address = db.Column(db.Text, nullable=True)
     postal_address = db.Column(db.String(255), nullable=True)

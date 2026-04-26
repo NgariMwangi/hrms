@@ -1,6 +1,6 @@
 """Employee CRUD and management."""
 import calendar
-from datetime import date
+from datetime import date, timedelta
 import os
 import mimetypes
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, abort, send_file
@@ -113,6 +113,7 @@ def list():
 @permission_required('view_employees')
 def birthdays():
     cid = require_company_id()
+    today = date.today()
     selected_year = request.args.get('year', type=int) or date.today().year
     rows = (
         db.session.query(Employee)
@@ -124,14 +125,40 @@ def birthdays():
         .all()
     )
     month_groups = {month: [] for month in range(1, 13)}
+    this_month_birthdays = 0
+    this_week_birthdays = 0
+    week_start = today
+    week_end = today
+    if selected_year == today.year:
+        week_start = today
+        week_end = today + timedelta(days=6)
     for emp in rows:
         dob = emp.date_of_birth
         birthday_this_year = _next_birthday_for_year(selected_year, dob.month, dob.day)
+        if selected_year == today.year and birthday_this_year.month == today.month:
+            this_month_birthdays += 1
+        if selected_year == today.year and week_start <= birthday_this_year <= week_end:
+            this_week_birthdays += 1
+        days_until = (birthday_this_year - today).days if selected_year == today.year else None
         month_groups[birthday_this_year.month].append(
             {
                 'employee': emp,
                 'birthday': birthday_this_year,
                 'turning_age': selected_year - dob.year,
+                'weekday': birthday_this_year.strftime('%A'),
+                'days_until': days_until,
+                'coming_weekday_label': (
+                    f"This coming {birthday_this_year.strftime('%A')}"
+                    if selected_year == today.year and days_until is not None and 2 <= days_until <= 6
+                    else None
+                ),
+                'status': (
+                    'happy_birthday'
+                    if selected_year == today.year and birthday_this_year == today
+                    else 'past'
+                    if selected_year == today.year and birthday_this_year < today
+                    else 'upcoming'
+                ),
             }
         )
     for month in month_groups:
@@ -141,6 +168,9 @@ def birthdays():
     return render_template(
         'employees/birthdays.html',
         selected_year=selected_year,
+        current_year=today.year,
+        this_month_birthdays=this_month_birthdays,
+        this_week_birthdays=this_week_birthdays,
         month_groups=month_groups,
         year_choices=year_choices,
         month_names=month_names,
@@ -206,8 +236,10 @@ def create():
                 nssf_number=form.nssf_number.data or None,
                 nhif_number=form.nhif_number.data or None,
                 email=form.email.data or None,
+                secondary_email=form.secondary_email.data or None,
                 phone=normalize_phone_ke(form.phone.data) if form.phone.data else None,
-                phone_alt=normalize_phone_ke(form.phone_alt.data) if form.phone_alt.data else None,
+                secondary_phone=normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None,
+                phone_alt=normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None,
                 address=form.address.data or None,
                 postal_address=form.postal_address.data or None,
                 emergency_contact_name=form.emergency_contact_name.data or None,
@@ -362,8 +394,10 @@ def edit(id):
             emp.nssf_number = form.nssf_number.data or None
             emp.nhif_number = form.nhif_number.data or None
             emp.email = form.email.data or None
+            emp.secondary_email = form.secondary_email.data or None
             emp.phone = normalize_phone_ke(form.phone.data) if form.phone.data else None
-            emp.phone_alt = normalize_phone_ke(form.phone_alt.data) if form.phone_alt.data else None
+            emp.secondary_phone = normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None
+            emp.phone_alt = normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None
             emp.address = form.address.data or None
             emp.postal_address = form.postal_address.data or None
             emp.emergency_contact_name = form.emergency_contact_name.data or None

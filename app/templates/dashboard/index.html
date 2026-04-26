@@ -162,12 +162,14 @@
                                         {{ item.employee.full_name }}
                                     </a>
                                 </td>
-                                <td>{{ item.birthday.strftime('%d %b') }}</td>
+                                <td>{{ item.birthday.strftime('%d %b') }} ({{ item.weekday }})</td>
                                 <td>
                                     {% if item.days_away == 0 %}
-                                    <span class="badge bg-success">Today</span>
+                                    <span class="badge bg-success">Happy Birthday</span>
                                     {% elif item.days_away == 1 %}
                                     Tomorrow
+                                    {% elif item.coming_weekday_label %}
+                                    <span class="badge bg-primary-subtle text-primary-emphasis">{{ item.coming_weekday_label }}</span>
                                     {% else %}
                                     {{ item.days_away }} days
                                     {% endif %}

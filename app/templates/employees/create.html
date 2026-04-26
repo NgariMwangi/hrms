@@ -33,7 +33,9 @@
         <div class="col-md-3"><label class="form-label">NSSF No</label><input type="text" name="nssf_number" class="form-control" value="{{ form.nssf_number.data or '' }}"></div>
         <div class="col-md-3"><label class="form-label">NHIF/SHIF No</label><input type="text" name="nhif_number" class="form-control" value="{{ form.nhif_number.data or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Email</label><input type="email" name="email" class="form-control" value="{{ form.email.data or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Secondary Email</label><input type="email" name="secondary_email" class="form-control" value="{{ form.secondary_email.data or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Phone</label><input type="text" name="phone" class="form-control" value="{{ form.phone.data or '' }}" placeholder="07XX XXX XXX"></div>
+        <div class="col-md-6"><label class="form-label">Secondary Phone</label><input type="text" name="secondary_phone" class="form-control" value="{{ form.secondary_phone.data or '' }}" placeholder="07XX XXX XXX"></div>
         <div class="col-md-6"><label class="form-label">Photo</label><input type="file" name="photo" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png"></div>
         <div class="col-12"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2">{{ form.address.data or '' }}</textarea></div>
         <div class="col-md-4">{{ form.department_id.label(class='form-label') }}{{ form.department_id(class='form-select') }}</div>
@@ -47,6 +49,8 @@
         <div class="col-md-4"><label class="form-label">Bank Name</label><input type="text" name="bank_name" class="form-control" value="{{ form.bank_name.data or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Bank branch</label><input type="text" name="bank_branch" class="form-control" value="{{ form.bank_branch.data or '' }}" placeholder="e.g. Westlands"></div>
         <div class="col-md-4"><label class="form-label">Account Number</label><input type="text" name="bank_account_number" class="form-control" value="{{ form.bank_account_number.data or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Bank Code</label><input type="text" name="bank_code" class="form-control" value="{{ form.bank_code.data or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">SWIFT Code</label><input type="text" name="swift_code" class="form-control" value="{{ form.swift_code.data or '' }}"></div>
         <div class="col-12">
             <button type="submit" class="btn btn-primary" {% if not form.branch_id.choices %}disabled{% endif %}><i class="bi bi-check-lg me-1"></i>Save Employee</button>
             <a href="{{ url_for('employees.list') }}" class="btn btn-outline-secondary">Cancel</a>

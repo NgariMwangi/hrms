@@ -59,7 +59,9 @@
     <div class="card-header">Contact</div>
     <div class="card-body">
         <p class="mb-1"><strong>Email:</strong> {{ employee.email or '-' }}</p>
+        <p class="mb-1"><strong>Secondary Email:</strong> {{ employee.secondary_email or '-' }}</p>
         <p class="mb-1"><strong>Phone:</strong> {{ employee.phone or '-' }}</p>
+        <p class="mb-1"><strong>Secondary Phone:</strong> {{ employee.secondary_phone or employee.phone_alt or '-' }}</p>
         <p class="mb-1"><strong>Address:</strong> {{ employee.address or '-' }}</p>
     </div>
 </div>

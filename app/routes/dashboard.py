@@ -96,7 +96,13 @@ def index():
                 {
                     'employee': emp,
                     'birthday': next_birthday,
+                    'weekday': next_birthday.strftime('%A'),
                     'days_away': (next_birthday - today).days,
+                    'coming_weekday_label': (
+                        f"This coming {next_birthday.strftime('%A')}"
+                        if 2 <= (next_birthday - today).days <= 6
+                        else None
+                    ),
                     'turning_age': next_birthday.year - dob.year,
                 }
             )

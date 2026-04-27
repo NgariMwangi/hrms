@@ -77,6 +77,7 @@ class EmployeeForm(FlaskForm):
         ('probation', 'Probation'), ('intern', 'Intern'), ('casual', 'Casual'),
     ], validators=[Optional()])
     hire_date = DateField('Hire Date', validators=[DataRequired()])
+    probation_start_date = DateField('Probation Start Date', validators=[Optional()])
     probation_end_date = DateField('Probation End Date', validators=[Optional()])
     confirmation_date = DateField('Confirmation Date', validators=[Optional()])
     contract_end_date = DateField('Contract End Date', validators=[Optional()])
@@ -96,6 +97,15 @@ class EmployeeForm(FlaskForm):
             from datetime import timedelta
             if field.data > date.today() - timedelta(days=365 * 18):
                 raise ValidationError('Employee must be at least 18 years old.')
+
+    def validate_probation_end_date(self, field):
+        if self.employment_type.data == 'probation':
+            if not self.probation_start_date.data:
+                raise ValidationError('Probation start date is required for probation employment type.')
+            if not field.data:
+                raise ValidationError('Probation end date is required for probation employment type.')
+            if field.data < self.probation_start_date.data:
+                raise ValidationError('Probation end date cannot be before probation start date.')
 
 
 class EmployeeSalaryForm(FlaskForm):

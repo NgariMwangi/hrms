@@ -44,6 +44,8 @@
         <div class="col-md-4">{{ form.branch_id.label(class='form-label') }} <span class="text-danger">*</span>{{ form.branch_id(class='form-select', required=True, **({'disabled': 'disabled'} if not form.branch_id.choices else {})) }}</div>
         <div class="col-md-4">{{ form.employment_type.label(class='form-label') }}{{ form.employment_type(class='form-select') }}</div>
         <div class="col-md-4"><label class="form-label">Hire Date *</label><input type="date" name="hire_date" class="form-control" required value="{{ form.hire_date.data or '' }}"></div>
+        <div class="col-md-4 probation-fields d-none"><label class="form-label">Probation Start Date *</label><input type="date" name="probation_start_date" class="form-control" value="{{ form.probation_start_date.data or '' }}"></div>
+        <div class="col-md-4 probation-fields d-none"><label class="form-label">Probation End Date *</label><input type="date" name="probation_end_date" class="form-control" value="{{ form.probation_end_date.data or '' }}"></div>
         <div class="col-md-4">{{ form.status.label(class='form-label') }}{{ form.status(class='form-select') }}</div>
         <div class="col-12"><hr><h5>Bank Details</h5></div>
         <div class="col-md-4"><label class="form-label">Bank Name</label><input type="text" name="bank_name" class="form-control" value="{{ form.bank_name.data or '' }}"></div>
@@ -59,4 +61,21 @@
 </form>
     </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var employmentType = document.querySelector('select[name="employment_type"]');
+    var probationFields = document.querySelectorAll('.probation-fields');
+    if (!employmentType) return;
+    function toggleProbationFields() {
+        var isProbation = employmentType.value === 'probation';
+        probationFields.forEach(function(el) {
+            el.classList.toggle('d-none', !isProbation);
+            var input = el.querySelector('input');
+            if (input) input.required = isProbation;
+        });
+    }
+    employmentType.addEventListener('change', toggleProbationFields);
+    toggleProbationFields();
+});
+</script>
 {% endblock %}

@@ -53,6 +53,7 @@ class Employee(BaseModel):
     status = db.Column(db.String(30), default='active', nullable=False)  # active, terminated, resigned, retired, on_leave, suspended
     employment_type = db.Column(db.String(30), nullable=True)  # permanent, contract, probation, intern, casual
     hire_date = db.Column(db.Date, nullable=False)
+    probation_start_date = db.Column(db.Date, nullable=True)
     probation_end_date = db.Column(db.Date, nullable=True)
     confirmation_date = db.Column(db.Date, nullable=True)
     contract_end_date = db.Column(db.Date, nullable=True)

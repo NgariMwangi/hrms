@@ -188,5 +188,57 @@
         </div>
     </div>
     {% endif %}
+    {% if has_permission('edit_employees') %}
+    <div class="col-12 col-xl-4">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <h2 class="h6 mb-0">Probation alerts</h2>
+                    <i class="bi bi-bell text-warning"></i>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <div class="border rounded p-2 h-100">
+                            <div class="small text-muted">Nearing ({{ probation_alert_window_days }} days)</div>
+                            <div class="h5 mb-0">{{ probation_nearing|length }}</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-2 h-100">
+                            <div class="small text-muted">Arrived / overdue</div>
+                            <div class="h5 mb-0">{{ probation_arrived|length }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% if probation_arrived or probation_nearing %}
+                <ul class="list-group list-group-flush small">
+                    {% for item in probation_arrived[:5] %}
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <a href="{{ url_for('employees.view', id=item.employee.id) }}" class="text-decoration-none">{{ item.employee.full_name }}</a>
+                        {% if item.days_to_end == 0 %}
+                        <span class="badge bg-danger">Today</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ (item.days_to_end * -1) }}d overdue</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                    {% for item in probation_nearing[:5] %}
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <a href="{{ url_for('employees.view', id=item.employee.id) }}" class="text-decoration-none">{{ item.employee.full_name }}</a>
+                        {% if item.days_to_end == 1 %}
+                        <span class="badge bg-warning text-dark">Tomorrow</span>
+                        {% else %}
+                        <span class="badge bg-info text-dark">{{ item.days_to_end }}d</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted small mb-0">No probation alerts right now.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

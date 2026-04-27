@@ -177,6 +177,73 @@ def birthdays():
     )
 
 
+@employees_bp.route('/probation-dates')
+@login_required
+@permission_required('view_employees')
+def probation_dates():
+    """Probation end dates grouped by month for quick HR follow-up."""
+    cid = require_company_id()
+    today = date.today()
+    selected_year = request.args.get('year', type=int) or today.year
+    rows = (
+        db.session.query(Employee)
+        .filter(
+            Employee.company_id == cid,
+            Employee.status == 'active',
+            Employee.probation_end_date.isnot(None),
+        )
+        .all()
+    )
+    month_groups = {month: [] for month in range(1, 13)}
+    this_month_probation = 0
+    this_week_probation = 0
+    week_start = today
+    week_end = today + timedelta(days=6)
+    for emp in rows:
+        end_date = emp.probation_end_date
+        if end_date.year != selected_year:
+            continue
+        if selected_year == today.year and end_date.month == today.month:
+            this_month_probation += 1
+        if selected_year == today.year and week_start <= end_date <= week_end:
+            this_week_probation += 1
+        days_until = (end_date - today).days if selected_year == today.year else None
+        month_groups[end_date.month].append(
+            {
+                'employee': emp,
+                'probation_end_date': end_date,
+                'weekday': end_date.strftime('%A'),
+                'days_until': days_until,
+                'coming_weekday_label': (
+                    f"This coming {end_date.strftime('%A')}"
+                    if selected_year == today.year and days_until is not None and 2 <= days_until <= 6
+                    else None
+                ),
+                'status': (
+                    'arrived'
+                    if selected_year == today.year and end_date == today
+                    else 'past'
+                    if selected_year == today.year and end_date < today
+                    else 'upcoming'
+                ),
+            }
+        )
+    for month in month_groups:
+        month_groups[month].sort(key=lambda item: (item['probation_end_date'].day, item['employee'].full_name.lower()))
+    year_choices = [selected_year - 1, selected_year, selected_year + 1]
+    month_names = {month: calendar.month_name[month] for month in range(1, 13)}
+    return render_template(
+        'employees/probation_dates.html',
+        selected_year=selected_year,
+        current_year=today.year,
+        this_month_probation=this_month_probation,
+        this_week_probation=this_week_probation,
+        month_groups=month_groups,
+        year_choices=year_choices,
+        month_names=month_names,
+    )
+
+
 @employees_bp.route('/create', methods=['GET', 'POST'])
 @login_required
 @permission_required('create_employees')
@@ -250,6 +317,7 @@ def create():
                 status=form.status.data,
                 employment_type=form.employment_type.data or None,
                 hire_date=form.hire_date.data,
+                probation_start_date=form.probation_start_date.data,
                 probation_end_date=form.probation_end_date.data,
                 confirmation_date=form.confirmation_date.data,
                 contract_end_date=form.contract_end_date.data,
@@ -408,6 +476,7 @@ def edit(id):
             emp.status = form.status.data
             emp.employment_type = form.employment_type.data or None
             emp.hire_date = form.hire_date.data
+            emp.probation_start_date = form.probation_start_date.data
             emp.probation_end_date = form.probation_end_date.data
             emp.confirmation_date = form.confirmation_date.data
             emp.contract_end_date = form.contract_end_date.data

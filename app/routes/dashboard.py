@@ -1,5 +1,5 @@
 """Dashboard and homepage."""
-from datetime import date
+from datetime import date, timedelta
 
 from flask import Blueprint, render_template, redirect, url_for, flash
 from flask_login import login_required, current_user
@@ -65,6 +65,41 @@ def index():
             )
             .count()
         )
+
+    probation_alert_window_days = 14
+    probation_nearing = []
+    probation_arrived = []
+    if current_user.has_permission('edit_employees'):
+        probation_rows = (
+            db.session.query(Employee)
+            .filter(
+                Employee.company_id == cid,
+                Employee.status == 'active',
+                Employee.probation_end_date.isnot(None),
+            )
+            .all()
+        )
+        for emp in probation_rows:
+            end_date = emp.probation_end_date
+            days_to_end = (end_date - today).days
+            if 1 <= days_to_end <= probation_alert_window_days:
+                probation_nearing.append(
+                    {
+                        'employee': emp,
+                        'probation_end_date': end_date,
+                        'days_to_end': days_to_end,
+                    }
+                )
+            elif days_to_end <= 0:
+                probation_arrived.append(
+                    {
+                        'employee': emp,
+                        'probation_end_date': end_date,
+                        'days_to_end': days_to_end,
+                    }
+                )
+        probation_nearing.sort(key=lambda item: (item['days_to_end'], item['employee'].full_name.lower()))
+        probation_arrived.sort(key=lambda item: (item['days_to_end'], item['employee'].full_name.lower()))
 
     # Upcoming birthdays (admins / HR users with employee visibility)
     birthday_window_days = 14
@@ -172,6 +207,9 @@ def index():
         pending_overtime=pending_overtime,
         latest_payroll=latest_payroll,
         executive_summary=executive_summary,
+        probation_alert_window_days=probation_alert_window_days,
+        probation_nearing=probation_nearing,
+        probation_arrived=probation_arrived,
         upcoming_birthdays=upcoming_birthdays,
         birthday_window_days=birthday_window_days,
     )

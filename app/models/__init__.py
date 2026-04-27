@@ -34,6 +34,8 @@ from app.models.document import EmployeeDocument, DocumentCategory
 from app.models.notification import Notification
 from app.models.report import SavedReport
 from app.models.employer import Employer
+from app.models.benefit import EmployeeBenefit, EmployeeBenefitPayment
+from app.models.casual_worker import CasualWorker, CasualPayment
 
 __all__ = [
     'Company',
@@ -72,4 +74,8 @@ __all__ = [
     'Notification',
     'SavedReport',
     'Employer',
+    'EmployeeBenefit',
+    'EmployeeBenefitPayment',
+    'CasualWorker',
+    'CasualPayment',
 ]

@@ -76,6 +76,7 @@
             {% endif %}
             <a href="{{ url_for('employees.salary', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-cash-stack me-1"></i>Salary</a>
             <a href="{{ url_for('employees.employee_deductions', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-dash-circle me-1"></i>Deductions</a>
+            <a href="{{ url_for('employees.employee_benefits', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-wallet2 me-1"></i>Benefits</a>
             {% if not employee.user %}
             <a href="{{ url_for('employees.link_user', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-person-badge me-1"></i>Link login account</a>
             {% else %}

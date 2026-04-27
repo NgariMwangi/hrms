@@ -35,6 +35,9 @@
             <a class="nav-link {{ 'active' if ep and ep.startswith('employees') else '' }}" href="{{ url_for('employees.list') }}">
                 <i class="bi bi-people"></i> Employees
             </a>
+            <a class="nav-link {{ 'active' if ep and ep.startswith('casual_workers') else '' }}" href="{{ url_for('casual_workers.index') }}">
+                <i class="bi bi-person-workspace"></i> Casual Workers
+            </a>
             {% endif %}
             {% if has_permission('view_departments') %}
             <div class="sidebar-nav-group">

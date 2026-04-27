@@ -15,6 +15,7 @@ from app.models.job_title import JobTitle
 from app.models.payroll import EmployeeSalary, EmployeeAllowance, Allowance, EmployeeDeduction
 from app.models.user import User, Role, UserRole
 from app.models.document import EmployeeDocument, DocumentCategory
+from app.models.benefit import EmployeeBenefit, EmployeeBenefitPayment
 from app.forms.employee_forms import EmployeeForm, EmployeeSalaryForm
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
@@ -719,6 +720,161 @@ def employee_deductions(id):
         'employees/deductions.html',
         employee=emp,
         assignments=assignments,
+    )
+
+
+@employees_bp.route('/<int:id>/benefits', methods=['GET', 'POST'])
+@login_required
+@permission_required('edit_employees')
+def employee_benefits(id):
+    """Off-payroll benefits/reimbursements for an employee."""
+    from datetime import datetime
+    from decimal import Decimal as Dec
+
+    emp = db.session.get(Employee, id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    assignments = (
+        db.session.query(EmployeeBenefit)
+        .filter(EmployeeBenefit.employee_id == id)
+        .order_by(EmployeeBenefit.effective_date.desc(), EmployeeBenefit.id.desc())
+        .all()
+    )
+    benefit_ids = [a.id for a in assignments]
+    payments = []
+    if benefit_ids:
+        payments = (
+            db.session.query(EmployeeBenefitPayment)
+            .filter(EmployeeBenefitPayment.benefit_id.in_(benefit_ids))
+            .order_by(
+                EmployeeBenefitPayment.period_year.desc(),
+                EmployeeBenefitPayment.period_month.desc(),
+                EmployeeBenefitPayment.id.desc(),
+            )
+            .all()
+        )
+    payments_by_benefit = {}
+    for p in payments:
+        payments_by_benefit.setdefault(p.benefit_id, []).append(p)
+
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'add':
+            title = (request.form.get('title') or '').strip()
+            amount = request.form.get('amount', type=float)
+            frequency = (request.form.get('frequency') or 'one_off').strip().lower()
+            effective_date_s = request.form.get('effective_date')
+            notes = (request.form.get('notes') or '').strip() or None
+            if title and amount is not None and amount >= 0 and effective_date_s:
+                try:
+                    effective_date = datetime.strptime(effective_date_s, '%Y-%m-%d').date()
+                except ValueError:
+                    flash('Invalid effective date.', 'danger')
+                else:
+                    if frequency not in {'one_off', 'monthly'}:
+                        frequency = 'one_off'
+                    db.session.add(
+                        EmployeeBenefit(
+                            employee_id=id,
+                            title=title[:200],
+                            amount=Dec(str(amount)),
+                            frequency=frequency,
+                            effective_date=effective_date,
+                            notes=notes,
+                            is_active=True,
+                        )
+                    )
+                    db.session.commit()
+                    flash('Benefit added (off-payroll).', 'success')
+            else:
+                flash('Enter title, amount and effective date.', 'danger')
+        elif action == 'add_payment':
+            benefit_id = request.form.get('benefit_id', type=int)
+            period_year = request.form.get('period_year', type=int)
+            period_month = request.form.get('period_month', type=int)
+            amount = request.form.get('amount', type=float)
+            notes = (request.form.get('notes') or '').strip() or None
+            if benefit_id and period_year and period_month and amount is not None:
+                benefit = (
+                    db.session.query(EmployeeBenefit)
+                    .filter(EmployeeBenefit.id == benefit_id, EmployeeBenefit.employee_id == id)
+                    .first()
+                )
+                if not benefit:
+                    flash('Benefit not found for this employee.', 'danger')
+                elif period_month < 1 or period_month > 12:
+                    flash('Select a valid month (1-12).', 'danger')
+                else:
+                    payment = (
+                        db.session.query(EmployeeBenefitPayment)
+                        .filter(
+                            EmployeeBenefitPayment.benefit_id == benefit_id,
+                            EmployeeBenefitPayment.period_year == period_year,
+                            EmployeeBenefitPayment.period_month == period_month,
+                        )
+                        .first()
+                    )
+                    if not payment:
+                        payment = EmployeeBenefitPayment(
+                            benefit_id=benefit_id,
+                            period_year=period_year,
+                            period_month=period_month,
+                            status='pending',
+                        )
+                        db.session.add(payment)
+                    payment.amount = Dec(str(max(amount, 0)))
+                    payment.notes = notes
+                    db.session.commit()
+                    flash('Benefit payment line saved.', 'success')
+            else:
+                flash('Benefit, period and amount are required.', 'danger')
+        elif action == 'mark_paid':
+            payment_id = request.form.get('payment_id', type=int)
+            if payment_id:
+                payment = (
+                    db.session.query(EmployeeBenefitPayment)
+                    .join(EmployeeBenefit, EmployeeBenefit.id == EmployeeBenefitPayment.benefit_id)
+                    .filter(EmployeeBenefitPayment.id == payment_id, EmployeeBenefit.employee_id == id)
+                    .first()
+                )
+                if payment:
+                    payment.status = 'paid'
+                    payment.paid_on = date.today()
+                    db.session.commit()
+                    flash('Benefit payment marked as paid.', 'success')
+        elif action == 'mark_pending':
+            payment_id = request.form.get('payment_id', type=int)
+            if payment_id:
+                payment = (
+                    db.session.query(EmployeeBenefitPayment)
+                    .join(EmployeeBenefit, EmployeeBenefit.id == EmployeeBenefitPayment.benefit_id)
+                    .filter(EmployeeBenefitPayment.id == payment_id, EmployeeBenefit.employee_id == id)
+                    .first()
+                )
+                if payment:
+                    payment.status = 'pending'
+                    payment.paid_on = None
+                    db.session.commit()
+                    flash('Benefit payment marked as pending.', 'success')
+        elif action == 'delete':
+            aid = request.form.get('assignment_id', type=int)
+            if aid:
+                row = (
+                    db.session.query(EmployeeBenefit)
+                    .filter(EmployeeBenefit.id == aid, EmployeeBenefit.employee_id == id)
+                    .first()
+                )
+                if row:
+                    db.session.delete(row)
+                    db.session.commit()
+                    flash('Benefit removed.', 'success')
+        return redirect(url_for('employees.employee_benefits', id=id))
+    return render_template(
+        'employees/benefits.html',
+        employee=emp,
+        assignments=assignments,
+        payments_by_benefit=payments_by_benefit,
+        today=date.today(),
     )
 
 

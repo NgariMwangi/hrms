@@ -1,0 +1,167 @@
+{% extends "layouts/base.html" %}
+{% block title %}Benefits — {{ employee.full_name }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-2">Employee Benefits (off-payroll)</h1>
+<p class="text-muted mb-4">
+    <strong>{{ employee.employee_number or 'No Number' }}</strong> — {{ employee.full_name }}.
+    These benefits/reimbursements are tracked for HR records and are not included in payroll calculations.
+</p>
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a href="{{ url_for('employees.view', id=employee.id) }}" class="btn btn-outline-secondary">Back to employee</a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">Add benefit</div>
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="action" value="add"/>
+            <div class="col-md-5">
+                <label class="form-label">Title / description</label>
+                <input type="text" name="title" class="form-control" required maxlength="200" placeholder="e.g. Airtime reimbursement"/>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Amount (KES)</label>
+                <input type="number" name="amount" class="form-control" step="0.01" min="0" required value="0"/>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Frequency</label>
+                <select name="frequency" class="form-select">
+                    <option value="one_off">One-off</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Effective date</label>
+                <input type="date" name="effective_date" class="form-control" required/>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notes (optional)</label>
+                <input type="text" name="notes" class="form-control" maxlength="500" placeholder="Internal note"/>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Recorded benefits</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Amount (KES)</th>
+                        <th>Frequency</th>
+                        <th>Effective date</th>
+                        <th>Notes</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in assignments %}
+                    <tr>
+                        <td>{{ a.title }}</td>
+                        <td>{{ "%.2f"|format(a.amount|float) }}</td>
+                        <td>{{ a.frequency }}</td>
+                        <td>{{ a.effective_date.strftime('%d %b %Y') if a.effective_date else '—' }}</td>
+                        <td>{{ a.notes or '—' }}</td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#benefitPay{{ a.id }}" aria-expanded="false" aria-controls="benefitPay{{ a.id }}">Payments</button>
+                            <form method="post" class="d-inline" onsubmit="return confirm('Remove this benefit?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="action" value="delete"/>
+                                <input type="hidden" name="assignment_id" value="{{ a.id }}"/>
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr class="collapse" id="benefitPay{{ a.id }}">
+                        <td colspan="6" class="bg-light">
+                            <div class="p-2">
+                                <h6 class="mb-2">Payment lines — {{ a.title }}</h6>
+                                <form method="post" class="row g-2 mb-3">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="action" value="add_payment"/>
+                                    <input type="hidden" name="benefit_id" value="{{ a.id }}"/>
+                                    <div class="col-md-2">
+                                        <label class="form-label mb-1">Year</label>
+                                        <input type="number" name="period_year" class="form-control form-control-sm" min="2000" max="2100" value="{{ today.year }}">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label mb-1">Month</label>
+                                        <input type="number" name="period_month" class="form-control form-control-sm" min="1" max="12" value="{{ today.month }}">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label mb-1">Amount (KES)</label>
+                                        <input type="number" name="amount" class="form-control form-control-sm" step="0.01" min="0" value="{{ a.amount|float }}">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label mb-1">Notes</label>
+                                        <input type="text" name="notes" class="form-control form-control-sm" maxlength="500">
+                                    </div>
+                                    <div class="col-md-1 d-flex align-items-end">
+                                        <button type="submit" class="btn btn-sm btn-primary w-100">Save</button>
+                                    </div>
+                                </form>
+
+                                {% set p_rows = payments_by_benefit.get(a.id, []) %}
+                                <div class="table-responsive">
+                                    <table class="table table-sm mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Period</th>
+                                                <th>Amount</th>
+                                                <th>Status</th>
+                                                <th>Paid on</th>
+                                                <th>Notes</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for p in p_rows %}
+                                            <tr>
+                                                <td>{{ p.period_year }}-{{ "%02d"|format(p.period_month) }}</td>
+                                                <td>{{ "%.2f"|format(p.amount|float) }}</td>
+                                                <td><span class="badge {{ 'text-bg-success' if p.status == 'paid' else 'text-bg-warning' }}">{{ p.status|title }}</span></td>
+                                                <td>{{ p.paid_on.strftime('%d %b %Y') if p.paid_on else '—' }}</td>
+                                                <td>{{ p.notes or '—' }}</td>
+                                                <td>
+                                                    {% if p.status == 'pending' %}
+                                                    <form method="post" class="d-inline">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                        <input type="hidden" name="action" value="mark_paid"/>
+                                                        <input type="hidden" name="payment_id" value="{{ p.id }}"/>
+                                                        <button type="submit" class="btn btn-sm btn-outline-success">Mark Paid</button>
+                                                    </form>
+                                                    {% else %}
+                                                    <form method="post" class="d-inline">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                        <input type="hidden" name="action" value="mark_pending"/>
+                                                        <input type="hidden" name="payment_id" value="{{ p.id }}"/>
+                                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Mark Pending</button>
+                                                    </form>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                            {% else %}
+                                            <tr><td colspan="6" class="text-muted">No payment lines yet.</td></tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-muted px-3 py-2">No benefits recorded yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

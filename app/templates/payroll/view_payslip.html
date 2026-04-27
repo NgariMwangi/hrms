@@ -44,10 +44,16 @@
                 {% if show_housing_levy %}
                 <tr><td class="ps-3">Housing Levy</td><td class="text-end">{{ item.housing_levy|fmt_money(payslip_currency) }}</td></tr>
                 {% endif %}
+                {% if pension_percent_amount > 0 %}
+                <tr><td class="ps-3">Pension (%)</td><td class="text-end">{{ pension_percent_amount|fmt_money(payslip_currency) }}</td></tr>
+                {% endif %}
+                {% if pension_fixed_amount > 0 %}
+                <tr><td class="ps-3">Pension (Fixed)</td><td class="text-end">{{ pension_fixed_amount|fmt_money(payslip_currency) }}</td></tr>
+                {% endif %}
                 {% for od in other_deduction_lines %}
                 <tr><td class="ps-3">{{ od.name }}</td><td class="text-end">{{ od.amount|fmt_money(payslip_currency) }}</td></tr>
                 {% endfor %}
-                <tr class="table-light"><th>Total Deductions</th><td class="text-end">{{ (item.paye + item.nssf_employee + item.shif + item.housing_levy + item.other_deductions)|fmt_money(payslip_currency) }}</td></tr>
+                <tr class="table-light"><th>Total Deductions</th><td class="text-end">{{ (item.gross_pay - item.net_pay)|fmt_money(payslip_currency) }}</td></tr>
                 <tr class="table-success"><th>Net Pay</th><td class="text-end fw-bold">{{ item.net_pay|fmt_money(payslip_currency) }}</td></tr>
             </tbody>
         </table>

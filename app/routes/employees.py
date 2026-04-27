@@ -464,6 +464,7 @@ def salary(id):
                 meal_allowance=0,
                 other_allowances=0,
                 pension_employee_percent=form.pension_employee_percent.data or None,
+                pension_employee_fixed_amount=form.pension_employee_fixed_amount.data or None,
                 pension_employer_percent=form.pension_employer_percent.data or None,
                 notes=form.notes.data or None,
             )
@@ -542,6 +543,7 @@ def salary_edit(id, salary_id):
         rec.basic_salary = form.basic_salary.data
         rec.effective_from = form.effective_from.data
         rec.pension_employee_percent = form.pension_employee_percent.data or None
+        rec.pension_employee_fixed_amount = form.pension_employee_fixed_amount.data or None
         rec.pension_employer_percent = form.pension_employer_percent.data or None
         rec.notes = form.notes.data or None
         db.session.commit()

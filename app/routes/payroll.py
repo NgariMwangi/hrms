@@ -233,6 +233,7 @@ def run_calculate(id):
                 calc = calculate_employee_payroll(
                     basic_salary=salary.basic_salary,
                     pension_employee_percent=salary.pension_employee_percent,
+                    pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
                     pay_date=pay_date,
                     pro_rata_factor=factor,
                     allowance_breakdown=allowance_breakdown,
@@ -250,6 +251,7 @@ def run_calculate(id):
                     meal_allowance=salary.meal_allowance,
                     other_allowances=salary.other_allowances,
                     pension_employee_percent=salary.pension_employee_percent,
+                    pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
                     pay_date=pay_date,
                     pro_rata_factor=factor,
                     employee_id=emp.id,
@@ -611,8 +613,22 @@ def view_payslip(run_id, employee_id):
             continue
     show_overtime = overtime_amount > 0
     other_deduction_lines = []
+    pension_percent_amount = Decimal('0')
+    pension_fixed_amount = Decimal('0')
     for d in dd:
         c = d.get('code') or ''
+        if c == 'PENSION_PERCENT':
+            try:
+                pension_percent_amount += Decimal(str(d.get('amount') or 0))
+            except Exception:
+                pass
+            continue
+        if c == 'PENSION_FIXED':
+            try:
+                pension_fixed_amount += Decimal(str(d.get('amount') or 0))
+            except Exception:
+                pass
+            continue
         if c.startswith('DED_') or c.startswith('MANUAL_') or c == 'OTHER':
             try:
                 amt = float(d.get('amount') or 0)
@@ -644,4 +660,6 @@ def view_payslip(run_id, employee_id):
         show_personal_relief=show_personal_relief,
         overtime_amount=overtime_amount,
         show_overtime=show_overtime,
+        pension_percent_amount=pension_percent_amount,
+        pension_fixed_amount=pension_fixed_amount,
     )

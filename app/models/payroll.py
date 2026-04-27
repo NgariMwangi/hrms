@@ -112,6 +112,7 @@ class EmployeeSalary(BaseModel):
     meal_allowance = db.Column(db.Numeric(14, 2), default=Decimal('0'), nullable=False)
     other_allowances = db.Column(db.Numeric(14, 2), default=Decimal('0'), nullable=False)
     pension_employee_percent = db.Column(db.Numeric(5, 2), default=Decimal('0'), nullable=True)  # if org has pension
+    pension_employee_fixed_amount = db.Column(db.Numeric(14, 2), default=Decimal('0'), nullable=True)
     pension_employer_percent = db.Column(db.Numeric(5, 2), default=Decimal('0'), nullable=True)
     notes = db.Column(db.Text, nullable=True)
 

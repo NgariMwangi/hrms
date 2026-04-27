@@ -2,8 +2,8 @@
 Core payroll calculation engine for Kenya.
 Uses statutory_service for PAYE, NSSF, SHIF, Housing Levy.
 Produces gross, taxable pay, deductions, net. Optionally pro-rata for mid-month join/exit.
-Pension % on salary is stored for reference; it does not reduce PAYE taxable pay or net pay here.
-Net pay matches statutory deductions: PAYE, NSSF, SHIF, Housing levy, and other deductions (same as payslip total).
+Optional pension deductions are employee-side only and do not affect employer contribution here.
+Net pay includes statutory deductions plus pension deductions and other deductions.
 """
 from datetime import date, timedelta
 from decimal import Decimal
@@ -16,6 +16,8 @@ from app.services.statutory_service import (
     calculate_housing_levy,
 )
 from app.services.deduction_service import get_recurring_deduction_line_items
+
+KENYA_PENSION_TAX_DEDUCTIBLE_CAP = Decimal('30000')
 
 def decimalize(value) -> Decimal:
     """Ensure value is Decimal."""
@@ -68,6 +70,7 @@ def calculate_employee_payroll(
     meal_allowance: Decimal = None,
     other_allowances: Decimal = None,
     pension_employee_percent: Decimal = None,
+    pension_employee_fixed_amount: Decimal = None,
     pay_date: date = None,
     pro_rata_factor: Decimal = None,
     other_earnings: Decimal = None,
@@ -98,6 +101,7 @@ def calculate_employee_payroll(
     other_earn = decimalize(other_earnings)
     legacy_other = decimalize(other_deductions)
     pension_pct = decimalize(pension_employee_percent)
+    pension_fixed = decimalize(pension_employee_fixed_amount)
     basic = decimalize(basic_salary) * factor
 
     if allowance_breakdown:
@@ -159,8 +163,15 @@ def calculate_employee_payroll(
     shif = calculate_shif(gross_pay, pay_date, scid, scc)
     housing_levy = calculate_housing_levy(gross_pay, pay_date, scid, scc)
     pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
-    # PAYE taxable pay: gross less NSSF (employee), SHIF, and Housing Levy only (not pension).
-    taxable_pay = (gross_pay - nssf_emp - shif - housing_levy).quantize(Decimal('0.01'))
+    pension_fixed_deduction = (pension_fixed * factor).quantize(Decimal('0.01')) if pension_fixed else Decimal('0')
+    if pension_fixed_deduction < 0:
+        pension_fixed_deduction = Decimal('0')
+    pension_total_for_month = (pension_deduction + pension_fixed_deduction).quantize(Decimal('0.01'))
+    pension_tax_deductible = pension_total_for_month
+    if scc == 'KE':
+        pension_tax_deductible = min(pension_total_for_month, KENYA_PENSION_TAX_DEDUCTIBLE_CAP)
+    # PAYE taxable pay: gross less statutory employee deductions and tax-deductible pension (capped in KE).
+    taxable_pay = (gross_pay - nssf_emp - shif - housing_levy - pension_tax_deductible).quantize(Decimal('0.01'))
     if taxable_pay < 0:
         taxable_pay = Decimal('0')
     paye = calculate_paye(taxable_pay, pay_date, scid, scc)
@@ -173,8 +184,7 @@ def calculate_employee_payroll(
     extra_lines = recurring_lines + manual_lines
     other_ded = legacy_other + sum((x['amount'] for x in extra_lines), start=Decimal('0'))
     other_ded = other_ded.quantize(Decimal('0.01'))
-    # Net pay = statutory deductions + other/recurring/manual deductions; pension is not subtracted here.
-    total_deductions = nssf_emp + shif + housing_levy + paye + other_ded
+    total_deductions = nssf_emp + shif + housing_levy + paye + pension_deduction + pension_fixed_deduction + other_ded
     net_pay = (gross_pay - total_deductions).quantize(Decimal('0.01'))
     deductions_breakdown = []
     for row in nssf_breakdown:
@@ -197,14 +207,9 @@ def calculate_employee_payroll(
     if legacy_other and legacy_other > 0:
         ext.append({'code': 'OTHER', 'name': 'Other Deductions (legacy)', 'amount': float(legacy_other)})
     if pension_deduction and pension_deduction > 0:
-        ext.insert(
-            -1,
-            {
-                'code': 'PENSION',
-                'name': 'Pension (reference — not deducted from net pay)',
-                'amount': float(pension_deduction),
-            },
-        )
+        ext.insert(-1, {'code': 'PENSION_PERCENT', 'name': 'Pension (%)', 'amount': float(pension_deduction)})
+    if pension_fixed_deduction and pension_fixed_deduction > 0:
+        ext.insert(-1, {'code': 'PENSION_FIXED', 'name': 'Pension (Fixed)', 'amount': float(pension_fixed_deduction)})
     deductions_breakdown.extend(ext)
 
     return {
@@ -215,6 +220,8 @@ def calculate_employee_payroll(
         'shif': shif,
         'housing_levy': housing_levy,
         'pension_deduction': pension_deduction,
+        'pension_fixed_deduction': pension_fixed_deduction,
+        'pension_tax_deductible': pension_tax_deductible,
         'taxable_pay': taxable_pay,
         'paye': paye,
         'other_deductions': other_ded,

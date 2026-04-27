@@ -102,6 +102,7 @@ class EmployeeSalaryForm(FlaskForm):
     """Employee basic salary record. Allowances are added separately via Allowance table."""
     basic_salary = FloatField('Basic Salary', validators=[DataRequired()])
     pension_employee_percent = FloatField('Pension Employee %', default=0, validators=[Optional()])
+    pension_employee_fixed_amount = FloatField('Employee Pension Fixed Amount', default=0, validators=[Optional()])
     pension_employer_percent = FloatField('Pension Employer %', default=0, validators=[Optional()])
     effective_from = DateField('Effective From', validators=[DataRequired()])
     notes = TextAreaField('Notes', validators=[Optional()])

@@ -18,6 +18,7 @@
                 <div class="col-md-4">{{ form.basic_salary.label(class='form-label') }}{{ form.basic_salary(class='form-control') }}</div>
                 <div class="col-md-4">{{ form.effective_from.label(class='form-label') }}{{ form.effective_from(class='form-control') }}</div>
                 <div class="col-md-4">{{ form.pension_employee_percent.label(class='form-label') }}{{ form.pension_employee_percent(class='form-control') }}</div>
+                <div class="col-md-4">{{ form.pension_employee_fixed_amount.label(class='form-label') }}{{ form.pension_employee_fixed_amount(class='form-control') }}</div>
                 <div class="col-md-4">{{ form.pension_employer_percent.label(class='form-label') }}{{ form.pension_employer_percent(class='form-control') }}</div>
                 <div class="col-12">{{ form.notes.label(class='form-label') }}{{ form.notes(class='form-control', rows=2) }}</div>
                 <div class="col-12">
@@ -105,13 +106,14 @@
         {% if salary_records %}
         <div class="table-responsive">
             <table class="table table-sm">
-                <thead><tr><th>Effective from</th><th>Basic ({{ currency_code }})</th><th>Pension %</th><th>Notes</th><th class="text-end">Actions</th></tr></thead>
+                <thead><tr><th>Effective from</th><th>Basic ({{ currency_code }})</th><th>Pension %</th><th>Pension Fixed ({{ currency_code }})</th><th>Notes</th><th class="text-end">Actions</th></tr></thead>
                 <tbody>
                 {% for s in salary_records %}
                 <tr>
                     <td>{{ s.effective_from.strftime('%d %b %Y') if s.effective_from else '-' }}</td>
                     <td>{{ s.basic_salary|fmt_money(currency_code) }}</td>
                     <td>{{ s.pension_employee_percent or 0 }} / {{ s.pension_employer_percent or 0 }}</td>
+                    <td>{{ (s.pension_employee_fixed_amount or 0)|fmt_money(currency_code) }}</td>
                     <td>{{ s.notes or '-' }}</td>
                     <td class="text-end">
                         <a href="{{ url_for('employees.salary_edit', id=employee.id, salary_id=s.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>

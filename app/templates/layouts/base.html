@@ -27,17 +27,31 @@
             {% set leave_section_active = ep and ep.startswith('leave') %}
             {% set payroll_section_active = ep and ep.startswith('payroll') %}
             {% set overtime_active = ep and ep.startswith('overtime') %}
+            {% set employees_section_active = ep and (ep.startswith('employees') or ep.startswith('casual_workers')) %}
             {% set show_payroll_group = current_user.employee_id and has_permission('view_payroll') %}
             <a class="nav-link {{ 'active' if ep == 'dashboard.index' else '' }}" href="{{ url_for('dashboard.index') }}">
                 <i class="bi bi-grid-1x2"></i> Dashboard
             </a>
             {% if has_permission('view_employees') %}
-            <a class="nav-link {{ 'active' if ep and ep.startswith('employees') else '' }}" href="{{ url_for('employees.list') }}">
-                <i class="bi bi-people"></i> Employees
-            </a>
-            <a class="nav-link {{ 'active' if ep and ep.startswith('casual_workers') else '' }}" href="{{ url_for('casual_workers.index') }}">
-                <i class="bi bi-person-workspace"></i> Casual Workers
-            </a>
+            <div class="sidebar-nav-group">
+                <button class="sidebar-nav-toggle {{ 'collapsed' if not employees_section_active else '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#nav-sidebar-employees" aria-expanded="{{ 'true' if employees_section_active else 'false' }}" aria-controls="nav-sidebar-employees">
+                    <span>Employees</span>
+                    <span class="toggle-chevron" aria-hidden="true"><i class="bi bi-chevron-down"></i></span>
+                </button>
+                <div id="nav-sidebar-employees" class="collapse {{ 'show' if employees_section_active else '' }}">
+                    <div class="collapse-inner">
+                        <a class="nav-link {{ 'active' if ep == 'employees.list' else '' }}" href="{{ url_for('employees.list') }}">
+                            <i class="bi bi-people"></i> Employee List
+                        </a>
+                        <a class="nav-link {{ 'active' if ep == 'employees.benefits_index' else '' }}" href="{{ url_for('employees.benefits_index') }}">
+                            <i class="bi bi-wallet2"></i> Employee Benefits
+                        </a>
+                        <a class="nav-link {{ 'active' if ep and ep.startswith('casual_workers') else '' }}" href="{{ url_for('casual_workers.index') }}">
+                            <i class="bi bi-person-workspace"></i> Casual Workers
+                        </a>
+                    </div>
+                </div>
+            </div>
             {% endif %}
             {% if has_permission('view_departments') %}
             <div class="sidebar-nav-group">

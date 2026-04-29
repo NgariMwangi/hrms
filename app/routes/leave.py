@@ -100,12 +100,13 @@ def _handover_employee_choices(exclude_employee_id: int | None) -> list[tuple[in
 
 def _apply_handover_field(form, exclude_employee_id: int | None) -> bool:
     """
-    Populate handover select. Returns True if a colleague must be selected.
+    Populate handover select.
+    Handover is currently optional even when colleagues exist.
     """
     peers = _handover_employee_choices(exclude_employee_id)
     if peers:
         form.handover_to_id.choices = [('', '— Select colleague —')] + peers
-        return True
+        return False
     form.handover_to_id.choices = [
         ('', 'No other active employee (optional — contact HR if a cover is required)'),
     ]

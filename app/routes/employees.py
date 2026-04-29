@@ -178,6 +178,33 @@ def birthdays():
     )
 
 
+@employees_bp.route('/benefits')
+@login_required
+@permission_required('view_employees')
+def benefits_index():
+    """Organization-wide employee benefits listing."""
+    cid = require_company_id()
+    search = (request.args.get('q') or '').strip()
+
+    q = (
+        db.session.query(EmployeeBenefit)
+        .join(Employee, Employee.id == EmployeeBenefit.employee_id)
+        .options(joinedload(EmployeeBenefit.employee))
+        .filter(Employee.company_id == cid)
+    )
+    if search:
+        q = q.filter(
+            db.or_(
+                EmployeeBenefit.title.ilike(f'%{search}%'),
+                Employee.first_name.ilike(f'%{search}%'),
+                Employee.last_name.ilike(f'%{search}%'),
+                Employee.employee_number.ilike(f'%{search}%'),
+            )
+        )
+    rows = q.order_by(EmployeeBenefit.created_at.desc()).all()
+    return render_template('employees/benefits_index.html', rows=rows)
+
+
 @employees_bp.route('/probation-dates')
 @login_required
 @permission_required('view_employees')

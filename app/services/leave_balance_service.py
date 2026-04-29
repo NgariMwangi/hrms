@@ -202,7 +202,7 @@ def preview_leave_balance_for_apply(employee_id: int, leave_type_id: int, year: 
         snap = compute_balance_snapshot(employee_id, leave_type_id, year, as_of=as_of)
         if snap is None:
             return {"error": "internal"}
-        avail = max(Decimal("0"), _d(snap["closing_balance"]))
+        avail = _d(snap["closing_balance"])
         out: dict = {
             "mode": "ledger",
             "year": year,

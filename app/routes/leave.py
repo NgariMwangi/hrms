@@ -65,6 +65,44 @@ def _days_requested_for_leave(
     return Decimal(str(leave_days_between(start, end, basis, exclude_dates=excl)))
 
 
+def _validate_days_within_leave_limits(employee_id: int, lt: LeaveType, year: int, days_requested: Decimal) -> str | None:
+    """
+    Validate request against leave type configured limits.
+    Allows negative accrued/available balances but enforces leave type caps.
+    """
+    if lt.min_days_request is not None and days_requested < Decimal(str(lt.min_days_request)):
+        return f'Minimum request for {lt.name} is {lt.min_days_request} day(s).'
+
+    if lt.max_consecutive_days is not None and days_requested > Decimal(str(lt.max_consecutive_days)):
+        return f'Maximum consecutive days for {lt.name} is {lt.max_consecutive_days} day(s).'
+
+    if lt.days_per_year is not None:
+        entitlement = Decimal(str(lt.days_per_year))
+        if days_requested > entitlement:
+            return (
+                f'Requested days exceed allowed days for {lt.name}. '
+                f'Max per request/year is {entitlement} day(s).'
+            )
+        used_approved = (
+            db.session.query(func.coalesce(func.sum(LeaveRequest.days_requested), 0))
+            .filter(
+                LeaveRequest.employee_id == employee_id,
+                LeaveRequest.leave_type_id == lt.id,
+                LeaveRequest.status == 'approved',
+                extract('year', LeaveRequest.start_date) == year,
+            )
+            .scalar()
+        )
+        total_after_request = Decimal(str(used_approved or 0)) + days_requested
+        if total_after_request > entitlement:
+            return (
+                f'Request exceeds allowed days for {year}. '
+                f'Allowed: {entitlement} day(s), already approved: {Decimal(str(used_approved or 0))}, '
+                f'requested: {days_requested}.'
+            )
+    return None
+
+
 def _active_leave_type_choices_for_employee(employee_id: int | None) -> list[tuple[int, str]]:
     q = db.session.query(LeaveType).filter(LeaveType.is_active.is_(True))
     if not employee_id:
@@ -251,20 +289,15 @@ def request_leave():
             country_code=_leave_country_for_employee(emp_self),
         )
         req_year = form.start_date.data.year
-        if leave_type_uses_balance_ledger(lt):
-            avail = get_available_days(emp_id, lt.id, req_year)
-            if avail is not None and days_requested > avail:
-                flash(
-                    f'Insufficient leave balance for {req_year}. Available: {avail} days; '
-                    f'requested: {days_requested} days. Contact HR if your opening/carry needs updating.',
-                    'danger',
-                )
-                return render_template(
-                    'leave/my_requests.html',
-                    form=form,
-                    balance_preview_requires_employee_id=False,
-                    handover_required=handover_required,
-                )
+        limit_error = _validate_days_within_leave_limits(emp_id, lt, req_year, days_requested)
+        if limit_error:
+            flash(limit_error, 'danger')
+            return render_template(
+                'leave/my_requests.html',
+                form=form,
+                balance_preview_requires_employee_id=False,
+                handover_required=handover_required,
+            )
         lr = LeaveRequest(
             employee_id=emp_id,
             leave_type_id=form.leave_type_id.data,
@@ -365,20 +398,15 @@ def admin_request_leave():
             country_code=_leave_country_for_employee(emp),
         )
         req_year = form.start_date.data.year
-        if leave_type_uses_balance_ledger(lt):
-            avail = get_available_days(emp_id, lt.id, req_year)
-            if avail is not None and days_requested > avail:
-                flash(
-                    f'Insufficient leave balance for {req_year} for this employee. '
-                    f'Available: {avail} days; requested: {days_requested} days.',
-                    'danger',
-                )
-                return render_template(
-                    'leave/admin_request.html',
-                    form=form,
-                    balance_preview_requires_employee_id=True,
-                    handover_required=handover_required_admin,
-                )
+        limit_error = _validate_days_within_leave_limits(emp_id, lt, req_year, days_requested)
+        if limit_error:
+            flash(limit_error, 'danger')
+            return render_template(
+                'leave/admin_request.html',
+                form=form,
+                balance_preview_requires_employee_id=True,
+                handover_required=handover_required_admin,
+            )
         auto = bool(form.auto_approve.data)
         notes_parts = ['Recorded on behalf of employee by admin.']
         if form.admin_notes.data and str(form.admin_notes.data).strip():

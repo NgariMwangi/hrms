@@ -973,6 +973,42 @@ def employee_benefits(id):
                     flash('One-off benefit added for the selected payroll month.', 'success')
             else:
                 flash('Enter title, amount and a valid payroll month/year.', 'danger')
+        elif action == 'edit':
+            aid = request.form.get('assignment_id', type=int)
+            title = (request.form.get('title') or '').strip()
+            amount = request.form.get('amount', type=float)
+            payroll_year = request.form.get('payroll_year', type=int)
+            payroll_month = request.form.get('payroll_month', type=int)
+            frequency = (request.form.get('frequency') or 'one_off').strip().lower()
+            notes = (request.form.get('notes') or '').strip() or None
+            if frequency not in {'one_off', 'monthly'}:
+                frequency = 'one_off'
+            row = None
+            if aid:
+                row = (
+                    db.session.query(EmployeeBenefit)
+                    .filter(EmployeeBenefit.id == aid, EmployeeBenefit.employee_id == id)
+                    .first()
+                )
+            if not row:
+                flash('Benefit not found.', 'danger')
+            elif not (
+                title
+                and amount is not None and amount >= 0
+                and payroll_year and 2000 <= payroll_year <= 2100
+                and payroll_month and 1 <= payroll_month <= 12
+            ):
+                flash('Enter title, amount and a valid payroll month/year.', 'danger')
+            else:
+                row.title = title[:200]
+                row.amount = Dec(str(amount))
+                row.frequency = frequency
+                row.payroll_year = payroll_year
+                row.payroll_month = payroll_month
+                row.effective_date = date(payroll_year, payroll_month, 1)
+                row.notes = notes
+                db.session.commit()
+                flash('Benefit updated.', 'success')
         elif action == 'delete':
             aid = request.form.get('assignment_id', type=int)
             if aid:

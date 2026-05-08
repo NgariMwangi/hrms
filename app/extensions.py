@@ -19,7 +19,7 @@ login_manager = LoginManager()
 
 # Security
 csrf = CSRFProtect()
-limiter = Limiter(key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
+limiter = Limiter(key_func=get_remote_address, default_limits=["200 per day", "500 per hour"])
 
 # Mail
 mail = Mail()

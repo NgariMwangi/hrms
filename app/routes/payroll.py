@@ -8,6 +8,7 @@ from app.models.payroll import (
     PayrollItem,
     EmployeeSalary,
     EmployeeAllowance,
+    EmployeeDeduction,
     PayrollStatutoryRemittance,
     PayrollRunManualDeduction,
     PayrollRunExclusion,

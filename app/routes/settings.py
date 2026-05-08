@@ -201,6 +201,7 @@ def employer():
         emp.physical_address = (form.physical_address.data or '').strip() or None
         emp.postal_address = (form.postal_address.data or '').strip() or None
         emp.registration_number = (form.registration_number.data or '').strip() or None
+        emp.welfare_kit_deduction = form.welfare_kit_deduction.data or 0
 
         db.session.commit()
         flash('Employer details saved.', 'success')
@@ -215,6 +216,7 @@ def employer():
         form.physical_address.data = emp.physical_address or ''
         form.postal_address.data = emp.postal_address or ''
         form.registration_number.data = emp.registration_number or ''
+        form.welfare_kit_deduction.data = float(emp.welfare_kit_deduction or 0)
 
     return render_template('settings/employer.html', form=form, employer=emp)
 

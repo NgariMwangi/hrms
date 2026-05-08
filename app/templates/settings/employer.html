@@ -6,7 +6,10 @@
         <h1 class="h3 mb-1">Employer Details</h1>
         <p class="text-muted small mb-0">Company data used in statutory reports (P9, iTax exports, etc.).</p>
     </div>
-    <a href="{{ url_for('settings.index') }}" class="btn btn-sm btn-outline-secondary">Back</a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('employees.welfare_bulk') }}" class="btn btn-sm btn-outline-primary">Bulk welfare by employee</a>
+        <a href="{{ url_for('settings.index') }}" class="btn btn-sm btn-outline-secondary">Back</a>
+    </div>
 </div>
 
 <div class="card shadow-sm">
@@ -51,6 +54,12 @@
                     <label class="form-label">{{ form.registration_number.label }}</label>
                     {{ form.registration_number(class='form-control') }}
                     {% for e in form.registration_number.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ form.welfare_kit_deduction.label }}</label>
+                    {{ form.welfare_kit_deduction(class='form-control', step='0.01', min='0') }}
+                    <div class="form-text">Amount deducted from every employee each payroll month (0 to disable).</div>
+                    {% for e in form.welfare_kit_deduction.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
                 </div>
 
                 <div class="col-12">

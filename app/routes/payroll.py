@@ -16,6 +16,7 @@ from app.models.employee import Employee as EmpModel
 from app.models.company import Branch
 from app.models.overtime import OvertimeRequest
 from app.models.benefit import EmployeeBenefit
+from app.models.employer import Employer
 from app.forms.payroll_forms import PayrollRunForm, PayrollApproveForm
 from app.services.payroll_engine import calculate_employee_payroll, pro_rata_factor
 from app.services.deduction_service import get_manual_deduction_line_items_for_run
@@ -180,6 +181,8 @@ def run_calculate(id):
         return redirect(url_for('payroll.run_calculate', id=run_obj.id))
 
     if request.method == 'POST' and request.form.get('action') == 'calculate':
+        employer_profile = db.session.query(Employer).filter(Employer.company_id == run_obj.company_id).first()
+        welfare_kit_amount = Decimal(str(getattr(employer_profile, 'welfare_kit_deduction', 0) or 0))
         excluded_employee_ids = {
             row.employee_id
             for row in db.session.query(PayrollRunExclusion)
@@ -253,6 +256,14 @@ def run_calculate(id):
                 ),
             ).all()
             manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
+            if welfare_kit_amount > 0:
+                manual_lines = list(manual_lines) + [
+                    {
+                        'code': 'WELFARE_KIT',
+                        'name': 'Welfare Kit',
+                        'amount': welfare_kit_amount.quantize(Decimal('0.01')),
+                    }
+                ]
             ot_rows = (
                 db.session.query(OvertimeRequest)
                 .filter(

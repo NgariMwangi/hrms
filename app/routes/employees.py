@@ -915,6 +915,102 @@ def employee_deductions(id):
     )
 
 
+@employees_bp.route('/deductions/welfare-bulk', methods=['GET', 'POST'])
+@login_required
+@permission_required('edit_employees')
+def welfare_bulk():
+    """Bulk set welfare-kit recurring deduction amounts for many employees at once."""
+    from datetime import datetime
+    from decimal import Decimal as Dec
+
+    cid = require_company_id()
+    employees = (
+        db.session.query(Employee)
+        .filter(Employee.company_id == cid, Employee.status == 'active')
+        .order_by(Employee.last_name, Employee.first_name)
+        .all()
+    )
+    emp_ids = [e.id for e in employees]
+    existing_rows = []
+    if emp_ids:
+        existing_rows = (
+            db.session.query(EmployeeDeduction)
+            .filter(
+                EmployeeDeduction.employee_id.in_(emp_ids),
+                EmployeeDeduction.is_active.is_(True),
+                EmployeeDeduction.effective_to.is_(None),
+                EmployeeDeduction.title == 'Welfare Kit',
+            )
+            .order_by(EmployeeDeduction.effective_from.desc(), EmployeeDeduction.id.desc())
+            .all()
+        )
+    current_by_emp = {}
+    for r in existing_rows:
+        current_by_emp.setdefault(r.employee_id, r)
+
+    if request.method == 'POST':
+        effective_from_s = (request.form.get('effective_from') or '').strip()
+        if not effective_from_s:
+            flash('Effective from date is required.', 'danger')
+            return redirect(url_for('employees.welfare_bulk'))
+        try:
+            effective_from = datetime.strptime(effective_from_s, '%Y-%m-%d').date()
+        except ValueError:
+            flash('Invalid effective from date.', 'danger')
+            return redirect(url_for('employees.welfare_bulk'))
+
+        updated = 0
+        for emp in employees:
+            amt_raw = (request.form.get(f'amount_{emp.id}') or '').strip()
+            try:
+                amount = Dec(str(amt_raw or '0'))
+            except Exception:
+                continue
+            current = current_by_emp.get(emp.id)
+            if amount <= 0:
+                if current:
+                    current.is_active = False
+                    current.effective_to = effective_from - timedelta(days=1)
+                    updated += 1
+                continue
+
+            if current and current.effective_from == effective_from:
+                current.amount = amount
+                current.calculation_mode = 'fixed'
+                current.notes = 'Bulk welfare kit setup'
+                updated += 1
+            else:
+                if current:
+                    current.effective_to = effective_from - timedelta(days=1)
+                db.session.add(
+                    EmployeeDeduction(
+                        employee_id=emp.id,
+                        deduction_id=None,
+                        title='Welfare Kit',
+                        calculation_mode='fixed',
+                        amount=amount,
+                        rate_percent=None,
+                        effective_from=effective_from,
+                        effective_to=None,
+                        remaining_balance=None,
+                        notes='Bulk welfare kit setup',
+                        is_active=True,
+                    )
+                )
+                updated += 1
+
+        db.session.commit()
+        flash(f'Welfare kit amounts saved for {updated} employee(s).', 'success')
+        return redirect(url_for('employees.welfare_bulk'))
+
+    return render_template(
+        'employees/welfare_bulk.html',
+        employees=employees,
+        current_by_emp=current_by_emp,
+        today=date.today(),
+    )
+
+
 @employees_bp.route('/<int:id>/benefits', methods=['GET', 'POST'])
 @login_required
 @permission_required('edit_employees')

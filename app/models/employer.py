@@ -1,6 +1,7 @@
 """
 Employer legal / payroll identity — one profile per tenant Company.
 """
+from decimal import Decimal
 
 from app.extensions import db
 from app.models.base import BaseModel
@@ -26,6 +27,7 @@ class Employer(BaseModel):
 
     # Optional identifiers (useful for payroll/statutory docs)
     registration_number = db.Column(db.String(80), nullable=True)
+    welfare_kit_deduction = db.Column(db.Numeric(14, 2), nullable=False, default=Decimal('0'))
 
     def __repr__(self) -> str:
         return f"<Employer id={self.id} name={self.name!r}>"

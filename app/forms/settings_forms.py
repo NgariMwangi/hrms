@@ -83,5 +83,10 @@ class EmployerForm(FlaskForm):
     postal_address = StringField('Postal address', validators=[Optional()])
 
     registration_number = StringField('Registration number', validators=[Optional()])
+    welfare_kit_deduction = FloatField(
+        'Welfare kit deduction (per employee per month)',
+        validators=[Optional(), NumberRange(min=0)],
+        default=0,
+    )
 
     submit = SubmitField('Save')

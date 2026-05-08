@@ -301,8 +301,8 @@ def run_calculate(id):
                 allowance_breakdown.extend(
                     {
                         'amount': b.amount,
-                        'is_taxable': False,
-                        'is_pensionable': False,
+                        'is_taxable': True,
+                        'is_pensionable': True,
                         'code': f'BEN-{b.id}',
                         'name': b.title or 'Benefit',
                     }

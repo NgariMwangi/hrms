@@ -25,6 +25,7 @@
                     <th>Employee</th>
                     <th>Benefit</th>
                     <th>Amount (KES)</th>
+                    <th>Frequency</th>
                     <th>Payroll period</th>
                     <th></th>
                 </tr>
@@ -35,6 +36,7 @@
                     <td>{{ row.employee.full_name if row.employee else '—' }}</td>
                     <td>{{ row.title }}</td>
                     <td>{{ "%.2f"|format(row.amount|float) }}</td>
+                    <td>{{ (row.frequency or 'one_off').replace('_', ' ') }}</td>
                     <td>
                         {% if row.payroll_year and row.payroll_month %}
                         {{ row.payroll_year }}-{{ "%02d"|format(row.payroll_month) }}
@@ -47,7 +49,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-muted px-3 py-2">No employee benefits found.</td></tr>
+                <tr><td colspan="6" class="text-muted px-3 py-2">No employee benefits found.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

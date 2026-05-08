@@ -25,10 +25,17 @@
                 <input type="number" name="amount" class="form-control" step="0.01" min="0" required value="0"/>
             </div>
             <div class="col-md-2">
+                <label class="form-label">Frequency</label>
+                <select name="frequency" class="form-select">
+                    <option value="one_off">One-off</option>
+                    <option value="monthly">Recurring monthly</option>
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">Payroll year</label>
                 <input type="number" name="payroll_year" class="form-control" min="2000" max="2100" required value="{{ today.year }}">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-1">
                 <label class="form-label">Payroll month</label>
                 <select name="payroll_month" class="form-select" required>
                     {% for m in range(1, 13) %}
@@ -56,6 +63,7 @@
                     <tr>
                         <th>Title</th>
                         <th>Amount (KES)</th>
+                        <th>Frequency</th>
                         <th>Payroll period</th>
                         <th>Notes</th>
                         <th></th>
@@ -66,6 +74,7 @@
                     <tr>
                         <td>{{ a.title }}</td>
                         <td>{{ "%.2f"|format(a.amount|float) }}</td>
+                        <td>{{ (a.frequency or 'one_off').replace('_', ' ') }}</td>
                         <td>
                             {% if a.payroll_year and a.payroll_month %}
                             {{ a.payroll_year }}-{{ "%02d"|format(a.payroll_month) }}
@@ -84,7 +93,7 @@
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="5" class="text-muted px-3 py-2">No benefits recorded yet.</td></tr>
+                    <tr><td colspan="6" class="text-muted px-3 py-2">No benefits recorded yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

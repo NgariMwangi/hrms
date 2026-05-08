@@ -8,7 +8,7 @@ from app.models.base import BaseModel
 
 
 class EmployeeBenefit(BaseModel):
-    """Employee benefit scheduled for one payroll month."""
+    """Employee benefit scheduled for payroll (one-off or recurring monthly)."""
     __tablename__ = 'employee_benefits'
     __table_args__ = (
         db.Index('ix_employee_benefits_employee_id', 'employee_id'),
@@ -18,6 +18,7 @@ class EmployeeBenefit(BaseModel):
     employee_id = db.Column(db.Integer, db.ForeignKey('employees.id', ondelete='CASCADE'), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     amount = db.Column(db.Numeric(14, 2), default=Decimal('0'), nullable=False)
+    frequency = db.Column(db.String(20), default='one_off', nullable=False)  # one_off, monthly
     effective_date = db.Column(db.Date, nullable=True)  # legacy compatibility
     payroll_year = db.Column(db.Integer, nullable=True)
     payroll_month = db.Column(db.Integer, nullable=True)

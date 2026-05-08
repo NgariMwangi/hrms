@@ -943,7 +943,10 @@ def employee_benefits(id):
             amount = request.form.get('amount', type=float)
             payroll_year = request.form.get('payroll_year', type=int)
             payroll_month = request.form.get('payroll_month', type=int)
+            frequency = (request.form.get('frequency') or 'one_off').strip().lower()
             notes = (request.form.get('notes') or '').strip() or None
+            if frequency not in {'one_off', 'monthly'}:
+                frequency = 'one_off'
             if (
                 title
                 and amount is not None and amount >= 0
@@ -955,6 +958,7 @@ def employee_benefits(id):
                         employee_id=id,
                         title=title[:200],
                         amount=Dec(str(amount)),
+                        frequency=frequency,
                         effective_date=date(payroll_year, payroll_month, 1),
                         payroll_year=payroll_year,
                         payroll_month=payroll_month,
@@ -963,7 +967,10 @@ def employee_benefits(id):
                     )
                 )
                 db.session.commit()
-                flash('Benefit added and will be included in the selected payroll month.', 'success')
+                if frequency == 'monthly':
+                    flash('Recurring benefit added. It will be included every month from the selected payroll period.', 'success')
+                else:
+                    flash('One-off benefit added for the selected payroll month.', 'success')
             else:
                 flash('Enter title, amount and a valid payroll month/year.', 'danger')
         elif action == 'delete':

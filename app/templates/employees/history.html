@@ -147,6 +147,7 @@
                         <tr>
                             <th>Title</th>
                             <th class="text-end">Amount</th>
+                            <th>Frequency</th>
                             <th class="text-nowrap">Payroll period</th>
                             <th>Notes</th>
                         </tr>
@@ -156,6 +157,7 @@
                         <tr>
                             <td class="fw-medium">{{ b.title }}</td>
                             <td class="text-end">{{ "%.2f"|format(b.amount|float) }} {{ currency_code }}</td>
+                            <td>{{ (b.frequency or 'one_off').replace('_', ' ') }}</td>
                             <td class="text-nowrap">
                                 {% if b.payroll_year and b.payroll_month %}
                                 {{ b.payroll_year }}-{{ "%02d"|format(b.payroll_month) }}

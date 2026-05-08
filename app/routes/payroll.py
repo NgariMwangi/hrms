@@ -226,10 +226,24 @@ def run_calculate(id):
                 EmployeeBenefit.is_active.is_(True),
                 db.or_(
                     db.and_(
+                        EmployeeBenefit.frequency == 'one_off',
                         EmployeeBenefit.payroll_year == run_obj.pay_year,
                         EmployeeBenefit.payroll_month == run_obj.pay_month,
                     ),
                     db.and_(
+                        EmployeeBenefit.frequency == 'monthly',
+                        EmployeeBenefit.payroll_year.isnot(None),
+                        EmployeeBenefit.payroll_month.isnot(None),
+                        db.or_(
+                            EmployeeBenefit.payroll_year < run_obj.pay_year,
+                            db.and_(
+                                EmployeeBenefit.payroll_year == run_obj.pay_year,
+                                EmployeeBenefit.payroll_month <= run_obj.pay_month,
+                            ),
+                        ),
+                    ),
+                    db.and_(
+                        db.or_(EmployeeBenefit.frequency.is_(None), EmployeeBenefit.frequency == ''),
                         EmployeeBenefit.payroll_year.is_(None),
                         EmployeeBenefit.payroll_month.is_(None),
                         EmployeeBenefit.effective_date.isnot(None),

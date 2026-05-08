@@ -256,7 +256,16 @@ def run_calculate(id):
                 ),
             ).all()
             manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
-            if welfare_kit_amount > 0:
+            # Avoid double deduction: if employee already has an active recurring Welfare Kit
+            # deduction (e.g. via bulk setup), do not also apply the employer-level flat amount.
+            has_employee_welfare = db.session.query(EmployeeDeduction.id).filter(
+                EmployeeDeduction.employee_id == emp.id,
+                EmployeeDeduction.is_active.is_(True),
+                EmployeeDeduction.effective_from <= pay_date,
+                (EmployeeDeduction.effective_to.is_(None)) | (EmployeeDeduction.effective_to >= pay_date),
+                EmployeeDeduction.title == 'Welfare Kit',
+            ).first() is not None
+            if welfare_kit_amount > 0 and not has_employee_welfare:
                 manual_lines = list(manual_lines) + [
                     {
                         'code': 'WELFARE_KIT',

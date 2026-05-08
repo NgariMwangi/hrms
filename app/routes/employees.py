@@ -9,18 +9,25 @@ from werkzeug.utils import secure_filename
 from sqlalchemy.orm import joinedload
 from app.extensions import db
 from app.models.employee import Employee
+from app.models.employee_assignment_history import EmployeeAssignmentHistory
 from app.models.company import Branch
 from app.models.department import Department
 from app.models.job_title import JobTitle
 from app.models.payroll import EmployeeSalary, EmployeeAllowance, Allowance, EmployeeDeduction
 from app.models.user import User, Role, UserRole
 from app.models.document import EmployeeDocument, DocumentCategory
-from app.models.benefit import EmployeeBenefit, EmployeeBenefitPayment
+from app.models.benefit import EmployeeBenefit
 from app.forms.employee_forms import EmployeeForm, EmployeeSalaryForm
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
 from app.utils.currency import currency_for_branch
 from app.services.audit_service import log_create, log_update, model_to_audit_dict
+from app.services.employee_history_service import (
+    assignment_snapshot,
+    backfill_assignment_history_if_missing,
+    record_initial_assignment,
+    sync_assignment_history_after_edit,
+)
 from app.utils.validators import normalize_phone_ke
 
 try:
@@ -201,7 +208,11 @@ def benefits_index():
                 Employee.employee_number.ilike(f'%{search}%'),
             )
         )
-    rows = q.order_by(EmployeeBenefit.created_at.desc()).all()
+    rows = q.order_by(
+        EmployeeBenefit.payroll_year.desc().nullslast(),
+        EmployeeBenefit.payroll_month.desc().nullslast(),
+        EmployeeBenefit.created_at.desc(),
+    ).all()
     return render_template('employees/benefits_index.html', rows=rows)
 
 
@@ -266,6 +277,74 @@ def probation_dates():
         current_year=today.year,
         this_month_probation=this_month_probation,
         this_week_probation=this_week_probation,
+        month_groups=month_groups,
+        year_choices=year_choices,
+        month_names=month_names,
+    )
+
+
+@employees_bp.route('/contract-dates')
+@login_required
+@permission_required('view_employees')
+def contract_dates():
+    """Contract end dates grouped by month for quick HR follow-up."""
+    cid = require_company_id()
+    today = date.today()
+    selected_year = request.args.get('year', type=int) or today.year
+    rows = (
+        db.session.query(Employee)
+        .filter(
+            Employee.company_id == cid,
+            Employee.status == 'active',
+            Employee.employment_type == 'contract',
+            Employee.contract_end_date.isnot(None),
+        )
+        .all()
+    )
+    month_groups = {month: [] for month in range(1, 13)}
+    this_month_contract = 0
+    this_week_contract = 0
+    week_start = today
+    week_end = today + timedelta(days=6)
+    for emp in rows:
+        end_date = emp.contract_end_date
+        if end_date.year != selected_year:
+            continue
+        if selected_year == today.year and end_date.month == today.month:
+            this_month_contract += 1
+        if selected_year == today.year and week_start <= end_date <= week_end:
+            this_week_contract += 1
+        days_until = (end_date - today).days if selected_year == today.year else None
+        month_groups[end_date.month].append(
+            {
+                'employee': emp,
+                'contract_end_date': end_date,
+                'weekday': end_date.strftime('%A'),
+                'days_until': days_until,
+                'coming_weekday_label': (
+                    f"This coming {end_date.strftime('%A')}"
+                    if selected_year == today.year and days_until is not None and 2 <= days_until <= 6
+                    else None
+                ),
+                'status': (
+                    'arrived'
+                    if selected_year == today.year and end_date == today
+                    else 'past'
+                    if selected_year == today.year and end_date < today
+                    else 'upcoming'
+                ),
+            }
+        )
+    for month in month_groups:
+        month_groups[month].sort(key=lambda item: (item['contract_end_date'].day, item['employee'].full_name.lower()))
+    year_choices = [selected_year - 1, selected_year, selected_year + 1]
+    month_names = {month: calendar.month_name[month] for month in range(1, 13)}
+    return render_template(
+        'employees/contract_dates.html',
+        selected_year=selected_year,
+        current_year=today.year,
+        this_month_contract=this_month_contract,
+        this_week_contract=this_week_contract,
         month_groups=month_groups,
         year_choices=year_choices,
         month_names=month_names,
@@ -345,10 +424,20 @@ def create():
                 status=form.status.data,
                 employment_type=form.employment_type.data or None,
                 hire_date=form.hire_date.data,
-                probation_start_date=form.probation_start_date.data,
-                probation_end_date=form.probation_end_date.data,
+                probation_start_date=(
+                    form.probation_start_date.data if form.employment_type.data == 'probation' else None
+                ),
+                probation_end_date=(
+                    form.probation_end_date.data if form.employment_type.data == 'probation' else None
+                ),
                 confirmation_date=form.confirmation_date.data,
-                contract_end_date=form.contract_end_date.data,
+                contract_start_date=(
+                    form.contract_start_date.data if form.employment_type.data == 'contract' else None
+                ),
+                contract_end_date=(
+                    form.contract_end_date.data if form.employment_type.data == 'contract' else None
+                ),
+                prorate_payroll=bool(form.prorate_payroll.data),
                 bank_name=form.bank_name.data or None,
                 bank_branch=form.bank_branch.data or None,
                 bank_account_number=form.bank_account_number.data or None,
@@ -357,6 +446,7 @@ def create():
             )
             db.session.add(emp)
             db.session.flush()
+            record_initial_assignment(emp, created_by_id=current_user.id)
             photo = request.files.get('photo')
             if photo and photo.filename:
                 emp.photo_url = _save_employee_photo(photo, emp.id)
@@ -370,6 +460,62 @@ def create():
     if request.method == 'POST' and form.errors:
         flash('Please fix the errors below.', 'danger')
     return render_template('employees/create.html', form=form)
+
+
+@employees_bp.route('/<int:id>/history')
+@login_required
+def history(id):
+    """Career history: assignment segments, salary, benefits — separate sections in UI."""
+    emp = db.session.get(Employee, id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    if (current_user.employee_id or 0) != emp.id and not current_user.has_permission('view_employees'):
+        abort(403)
+    if backfill_assignment_history_if_missing(emp):
+        db.session.commit()
+
+    segments = (
+        db.session.query(EmployeeAssignmentHistory)
+        .options(
+            joinedload(EmployeeAssignmentHistory.branch),
+            joinedload(EmployeeAssignmentHistory.department),
+            joinedload(EmployeeAssignmentHistory.job_title),
+            joinedload(EmployeeAssignmentHistory.manager),
+        )
+        .filter(EmployeeAssignmentHistory.employee_id == id)
+        .order_by(EmployeeAssignmentHistory.effective_from.desc(), EmployeeAssignmentHistory.id.desc())
+        .all()
+    )
+    salary_records = (
+        db.session.query(EmployeeSalary)
+        .filter(EmployeeSalary.employee_id == id)
+        .order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc())
+        .all()
+    )
+    benefits = (
+        db.session.query(EmployeeBenefit)
+        .filter(EmployeeBenefit.employee_id == id)
+        .order_by(
+            EmployeeBenefit.payroll_year.desc().nullslast(),
+            EmployeeBenefit.payroll_month.desc().nullslast(),
+            EmployeeBenefit.id.desc(),
+        )
+        .all()
+    )
+
+    currency_code = currency_for_branch(
+        emp.branch,
+        app_default=current_app.config.get('DEFAULT_CURRENCY', 'KES'),
+    ) if emp.branch else current_app.config.get('DEFAULT_CURRENCY', 'KES')
+
+    return render_template(
+        'employees/history.html',
+        employee=emp,
+        segments=segments,
+        salary_records=salary_records,
+        benefits=benefits,
+        currency_code=currency_code,
+    )
 
 
 @employees_bp.route('/<int:id>')
@@ -460,6 +606,8 @@ def edit(id):
             if not branch or branch.company_id != cid:
                 flash('Select a valid branch for this company.', 'danger')
                 return render_template('employees/edit.html', form=form, employee=emp)
+            before_assign = assignment_snapshot(emp)
+            backfill_assignment_history_if_missing(emp)
             old = model_to_audit_dict(emp)
             employee_number = _clean_employee_number(form.employee_number.data)
             if employee_number:
@@ -504,10 +652,20 @@ def edit(id):
             emp.status = form.status.data
             emp.employment_type = form.employment_type.data or None
             emp.hire_date = form.hire_date.data
-            emp.probation_start_date = form.probation_start_date.data
-            emp.probation_end_date = form.probation_end_date.data
+            if form.employment_type.data == 'probation':
+                emp.probation_start_date = form.probation_start_date.data
+                emp.probation_end_date = form.probation_end_date.data
+            else:
+                emp.probation_start_date = None
+                emp.probation_end_date = None
             emp.confirmation_date = form.confirmation_date.data
-            emp.contract_end_date = form.contract_end_date.data
+            if form.employment_type.data == 'contract':
+                emp.contract_start_date = form.contract_start_date.data
+                emp.contract_end_date = form.contract_end_date.data
+            else:
+                emp.contract_start_date = None
+                emp.contract_end_date = None
+            emp.prorate_payroll = bool(form.prorate_payroll.data)
             emp.bank_name = form.bank_name.data or None
             emp.bank_branch = form.bank_branch.data or None
             emp.bank_account_number = form.bank_account_number.data or None
@@ -516,6 +674,13 @@ def edit(id):
             photo = request.files.get('photo')
             if photo and photo.filename:
                 emp.photo_url = _save_employee_photo(photo, emp.id, old_photo_path=emp.photo_url)
+            assign_note = (request.form.get('assignment_change_reason') or '').strip() or None
+            sync_assignment_history_after_edit(
+                emp,
+                before_assign,
+                change_reason=assign_note,
+                created_by_id=current_user.id,
+            )
             db.session.commit()
             log_update('Employee', emp.id, old, model_to_audit_dict(emp), user_id=current_user.id, description='Employee updated')
             flash('Employee updated.', 'success')
@@ -754,8 +919,7 @@ def employee_deductions(id):
 @login_required
 @permission_required('edit_employees')
 def employee_benefits(id):
-    """Off-payroll benefits/reimbursements for an employee."""
-    from datetime import datetime
+    """Simple benefits that post directly into a selected payroll month."""
     from decimal import Decimal as Dec
 
     emp = db.session.get(Employee, id)
@@ -764,125 +928,44 @@ def employee_benefits(id):
     assignments = (
         db.session.query(EmployeeBenefit)
         .filter(EmployeeBenefit.employee_id == id)
-        .order_by(EmployeeBenefit.effective_date.desc(), EmployeeBenefit.id.desc())
+        .order_by(
+            EmployeeBenefit.payroll_year.desc().nullslast(),
+            EmployeeBenefit.payroll_month.desc().nullslast(),
+            EmployeeBenefit.id.desc(),
+        )
         .all()
     )
-    benefit_ids = [a.id for a in assignments]
-    payments = []
-    if benefit_ids:
-        payments = (
-            db.session.query(EmployeeBenefitPayment)
-            .filter(EmployeeBenefitPayment.benefit_id.in_(benefit_ids))
-            .order_by(
-                EmployeeBenefitPayment.period_year.desc(),
-                EmployeeBenefitPayment.period_month.desc(),
-                EmployeeBenefitPayment.id.desc(),
-            )
-            .all()
-        )
-    payments_by_benefit = {}
-    for p in payments:
-        payments_by_benefit.setdefault(p.benefit_id, []).append(p)
 
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'add':
             title = (request.form.get('title') or '').strip()
             amount = request.form.get('amount', type=float)
-            frequency = (request.form.get('frequency') or 'one_off').strip().lower()
-            effective_date_s = request.form.get('effective_date')
+            payroll_year = request.form.get('payroll_year', type=int)
+            payroll_month = request.form.get('payroll_month', type=int)
             notes = (request.form.get('notes') or '').strip() or None
-            if title and amount is not None and amount >= 0 and effective_date_s:
-                try:
-                    effective_date = datetime.strptime(effective_date_s, '%Y-%m-%d').date()
-                except ValueError:
-                    flash('Invalid effective date.', 'danger')
-                else:
-                    if frequency not in {'one_off', 'monthly'}:
-                        frequency = 'one_off'
-                    db.session.add(
-                        EmployeeBenefit(
-                            employee_id=id,
-                            title=title[:200],
-                            amount=Dec(str(amount)),
-                            frequency=frequency,
-                            effective_date=effective_date,
-                            notes=notes,
-                            is_active=True,
-                        )
+            if (
+                title
+                and amount is not None and amount >= 0
+                and payroll_year and 2000 <= payroll_year <= 2100
+                and payroll_month and 1 <= payroll_month <= 12
+            ):
+                db.session.add(
+                    EmployeeBenefit(
+                        employee_id=id,
+                        title=title[:200],
+                        amount=Dec(str(amount)),
+                        effective_date=date(payroll_year, payroll_month, 1),
+                        payroll_year=payroll_year,
+                        payroll_month=payroll_month,
+                        notes=notes,
+                        is_active=True,
                     )
-                    db.session.commit()
-                    flash('Benefit added (off-payroll).', 'success')
+                )
+                db.session.commit()
+                flash('Benefit added and will be included in the selected payroll month.', 'success')
             else:
-                flash('Enter title, amount and effective date.', 'danger')
-        elif action == 'add_payment':
-            benefit_id = request.form.get('benefit_id', type=int)
-            period_year = request.form.get('period_year', type=int)
-            period_month = request.form.get('period_month', type=int)
-            amount = request.form.get('amount', type=float)
-            notes = (request.form.get('notes') or '').strip() or None
-            if benefit_id and period_year and period_month and amount is not None:
-                benefit = (
-                    db.session.query(EmployeeBenefit)
-                    .filter(EmployeeBenefit.id == benefit_id, EmployeeBenefit.employee_id == id)
-                    .first()
-                )
-                if not benefit:
-                    flash('Benefit not found for this employee.', 'danger')
-                elif period_month < 1 or period_month > 12:
-                    flash('Select a valid month (1-12).', 'danger')
-                else:
-                    payment = (
-                        db.session.query(EmployeeBenefitPayment)
-                        .filter(
-                            EmployeeBenefitPayment.benefit_id == benefit_id,
-                            EmployeeBenefitPayment.period_year == period_year,
-                            EmployeeBenefitPayment.period_month == period_month,
-                        )
-                        .first()
-                    )
-                    if not payment:
-                        payment = EmployeeBenefitPayment(
-                            benefit_id=benefit_id,
-                            period_year=period_year,
-                            period_month=period_month,
-                            status='pending',
-                        )
-                        db.session.add(payment)
-                    payment.amount = Dec(str(max(amount, 0)))
-                    payment.notes = notes
-                    db.session.commit()
-                    flash('Benefit payment line saved.', 'success')
-            else:
-                flash('Benefit, period and amount are required.', 'danger')
-        elif action == 'mark_paid':
-            payment_id = request.form.get('payment_id', type=int)
-            if payment_id:
-                payment = (
-                    db.session.query(EmployeeBenefitPayment)
-                    .join(EmployeeBenefit, EmployeeBenefit.id == EmployeeBenefitPayment.benefit_id)
-                    .filter(EmployeeBenefitPayment.id == payment_id, EmployeeBenefit.employee_id == id)
-                    .first()
-                )
-                if payment:
-                    payment.status = 'paid'
-                    payment.paid_on = date.today()
-                    db.session.commit()
-                    flash('Benefit payment marked as paid.', 'success')
-        elif action == 'mark_pending':
-            payment_id = request.form.get('payment_id', type=int)
-            if payment_id:
-                payment = (
-                    db.session.query(EmployeeBenefitPayment)
-                    .join(EmployeeBenefit, EmployeeBenefit.id == EmployeeBenefitPayment.benefit_id)
-                    .filter(EmployeeBenefitPayment.id == payment_id, EmployeeBenefit.employee_id == id)
-                    .first()
-                )
-                if payment:
-                    payment.status = 'pending'
-                    payment.paid_on = None
-                    db.session.commit()
-                    flash('Benefit payment marked as pending.', 'success')
+                flash('Enter title, amount and a valid payroll month/year.', 'danger')
         elif action == 'delete':
             aid = request.form.get('assignment_id', type=int)
             if aid:
@@ -900,7 +983,6 @@ def employee_benefits(id):
         'employees/benefits.html',
         employee=emp,
         assignments=assignments,
-        payments_by_benefit=payments_by_benefit,
         today=date.today(),
     )
 

@@ -33,11 +33,18 @@ def working_days_between(start: date, end: date, exclude_dates: set = None) -> i
     return count
 
 
-def calendar_days_between(start: date, end: date) -> int:
-    """Count calendar days from start through end, inclusive (e.g. maternity: 90 consecutive calendar days)."""
+def calendar_days_between(start: date, end: date, exclude_dates: set = None) -> int:
+    """Count calendar days from start through end, inclusive, excluding explicit dates when provided."""
     if start > end:
         return 0
-    return (end - start).days + 1
+    exclude_dates = exclude_dates or set()
+    count = 0
+    d = start
+    while d <= end:
+        if d not in exclude_dates:
+            count += 1
+        d += timedelta(days=1)
+    return count
 
 
 def leave_days_between(start: date, end: date, basis: str, exclude_dates: set = None) -> int:
@@ -45,7 +52,7 @@ def leave_days_between(start: date, end: date, basis: str, exclude_dates: set = 
     basis: 'working' — Mon–Fri only; 'calendar' — every day in range.
     """
     if basis == 'calendar':
-        return calendar_days_between(start, end)
+        return calendar_days_between(start, end, exclude_dates=exclude_dates)
     return working_days_between(start, end, exclude_dates=exclude_dates)
 
 
@@ -85,7 +92,14 @@ def end_date_for_inclusive_leave_days(
         return start
     exclude_dates = exclude_dates or set()
     if basis == 'calendar':
-        return start + timedelta(days=total_days - 1)
+        # Calendar basis can still skip explicit excluded dates (e.g. configured public holidays).
+        remaining = total_days - 1
+        d = start
+        while remaining > 0:
+            d += timedelta(days=1)
+            if d not in exclude_dates:
+                remaining -= 1
+        return d
     # working days: start is day 1
     remaining = total_days - 1
     d = start

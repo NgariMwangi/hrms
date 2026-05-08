@@ -56,9 +56,11 @@ class Employee(BaseModel):
     probation_start_date = db.Column(db.Date, nullable=True)
     probation_end_date = db.Column(db.Date, nullable=True)
     confirmation_date = db.Column(db.Date, nullable=True)
+    contract_start_date = db.Column(db.Date, nullable=True)
     contract_end_date = db.Column(db.Date, nullable=True)
     termination_date = db.Column(db.Date, nullable=True)
     termination_reason = db.Column(db.String(500), nullable=True)
+    prorate_payroll = db.Column(db.Boolean, default=True, nullable=False)
     photo_url = db.Column(db.String(500), nullable=True)
 
     # Bank (for payroll)

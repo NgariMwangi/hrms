@@ -35,7 +35,20 @@
                 <p class="mb-1"><strong>Job Title:</strong> {{ employee.job_title.name if employee.job_title else '-' }}</p>
                 <p class="mb-1"><strong>Manager:</strong> {{ employee.manager.full_name if employee.manager else '-' }}</p>
                 <p class="mb-1"><strong>Status:</strong> <span class="badge bg-{{ 'success' if employee.status == 'active' else 'secondary' }}">{{ employee.status }}</span></p>
+                <p class="mb-1"><strong>Employment type:</strong> {{ employee.employment_type.replace('_', ' ').title() if employee.employment_type else '-' }}</p>
                 <p class="mb-1"><strong>Hire Date:</strong> {{ employee.hire_date.strftime('%d %b %Y') if employee.hire_date else '-' }}</p>
+                {% if employee.employment_type == 'probation' and (employee.probation_start_date or employee.probation_end_date) %}
+                <p class="mb-1"><strong>Probation:</strong>
+                    {{ employee.probation_start_date.strftime('%d %b %Y') if employee.probation_start_date else '—' }}
+                    → {{ employee.probation_end_date.strftime('%d %b %Y') if employee.probation_end_date else '—' }}
+                </p>
+                {% endif %}
+                {% if employee.employment_type == 'contract' and (employee.contract_start_date or employee.contract_end_date) %}
+                <p class="mb-1"><strong>Contract period:</strong>
+                    {{ employee.contract_start_date.strftime('%d %b %Y') if employee.contract_start_date else '—' }}
+                    → {{ employee.contract_end_date.strftime('%d %b %Y') if employee.contract_end_date else '—' }}
+                </p>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -74,6 +87,7 @@
             {% if has_permission('edit_employees') %}
             <a href="{{ url_for('employees.edit', id=employee.id) }}" class="btn btn-primary"><i class="bi bi-pencil me-1"></i>Edit details</a>
             {% endif %}
+            <a href="{{ url_for('employees.history', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-clock-history me-1"></i>Career history</a>
             <a href="{{ url_for('employees.salary', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-cash-stack me-1"></i>Salary</a>
             <a href="{{ url_for('employees.employee_deductions', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-dash-circle me-1"></i>Deductions</a>
             <a href="{{ url_for('employees.employee_benefits', id=employee.id) }}" class="btn btn-outline-primary"><i class="bi bi-wallet2 me-1"></i>Benefits</a>

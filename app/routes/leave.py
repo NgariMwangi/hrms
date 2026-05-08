@@ -1,4 +1,5 @@
 """Leave requests and approvals."""
+import calendar
 from decimal import Decimal
 
 from flask import Blueprint, abort, jsonify, render_template, redirect, url_for, flash, request
@@ -40,6 +41,7 @@ from app.utils.date_helpers import (
     leave_days_between,
 )
 from datetime import date, datetime, timedelta
+from collections import defaultdict
 from sqlalchemy.orm import joinedload
 
 leave_bp = Blueprint('leave', __name__)
@@ -57,11 +59,8 @@ def _days_requested_for_leave(
     basis = (lt.days_count_basis or 'working').lower()
     if basis not in ('working', 'calendar'):
         basis = 'working'
-    excl = (
-        public_holiday_dates_in_range(start, end, company_id, country_code)
-        if basis == 'working'
-        else None
-    )
+    # Public holidays are never counted as leave days.
+    excl = public_holiday_dates_in_range(start, end, company_id, country_code)
     return Decimal(str(leave_days_between(start, end, basis, exclude_dates=excl)))
 
 
@@ -203,11 +202,7 @@ def index():
         emp_row = r.employee
         co = emp_row.company_id if emp_row else cid
         cc = _leave_country_for_employee(emp_row)
-        excl = (
-            public_holiday_dates_in_range(r.start_date, r.end_date, co, cc)
-            if basis == 'working'
-            else None
-        )
+        excl = public_holiday_dates_in_range(r.start_date, r.end_date, co, cc)
         remaining_days[r.id] = approved_leave_remaining_days(
             r.start_date, r.end_date, basis, today=today, exclude_dates=excl
         )
@@ -443,6 +438,125 @@ def admin_request_leave():
     )
 
 
+@leave_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_request(id):
+    """Edit a leave request."""
+    lr = db.session.get(LeaveRequest, id)
+    if not lr:
+        abort(404)
+    emp = db.session.get(Employee, lr.employee_id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    can_manage_all = current_user.has_permission('approve_leave')
+    if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
+        abort(403)
+
+    form = LeaveRequestForm(obj=lr)
+    form.leave_type_id.choices = _active_leave_type_choices_for_employee(lr.employee_id)
+    handover_required = _apply_handover_field(form, lr.employee_id)
+    edit_ctx = {
+        'handover_required': handover_required,
+        'balance_preview_requires_employee_id': False,
+        'form_action': url_for('leave.edit_request', id=lr.id),
+        'form_submit_label': 'Save Changes',
+        'form_title': 'Edit Leave Request',
+        'edit_employee': emp,
+    }
+
+    if request.method == 'GET':
+        form.leave_type_id.data = lr.leave_type_id
+        form.start_date.data = lr.start_date
+        form.end_date.data = lr.end_date
+        form.handover_to_id.data = lr.handover_to_id
+        form.reason.data = lr.reason
+
+    if form.validate_on_submit():
+        if handover_required and form.handover_to_id.data is None:
+            flash('Choose a colleague to hand your duties over to for this leave.', 'danger')
+            return render_template(
+                'leave/my_requests.html',
+                form=form,
+                **edit_ctx,
+            )
+        ho_id = form.handover_to_id.data
+        if ho_id is not None:
+            ho = db.session.get(Employee, ho_id)
+            if (
+                not ho
+                or ho.status != 'active'
+                or ho.id == lr.employee_id
+                or ho.company_id != emp.company_id
+            ):
+                flash('Invalid colleague selected for handover.', 'danger')
+                return render_template(
+                    'leave/my_requests.html',
+                    form=form,
+                    **edit_ctx,
+                )
+
+        lt = db.session.get(LeaveType, form.leave_type_id.data)
+        if not lt or not lt.is_active or lt.company_id != emp.company_id:
+            flash('Invalid leave type.', 'danger')
+            return render_template(
+                'leave/my_requests.html',
+                form=form,
+                **edit_ctx,
+            )
+
+        days_requested = _days_requested_for_leave(
+            lt,
+            form.start_date.data,
+            form.end_date.data,
+            company_id=emp.company_id,
+            country_code=_leave_country_for_employee(emp),
+        )
+        req_year = form.start_date.data.year
+        limit_error = _validate_days_within_leave_limits(lr.employee_id, lt, req_year, days_requested)
+        if limit_error:
+            flash(limit_error, 'danger')
+            return render_template(
+                'leave/my_requests.html',
+                form=form,
+                **edit_ctx,
+            )
+
+        lr.leave_type_id = form.leave_type_id.data
+        lr.handover_to_id = ho_id
+        lr.start_date = form.start_date.data
+        lr.end_date = form.end_date.data
+        lr.days_requested = days_requested
+        lr.reason = form.reason.data
+        db.session.commit()
+        flash('Leave request updated.', 'success')
+        return redirect(url_for('leave.index'))
+
+    return render_template(
+        'leave/my_requests.html',
+        form=form,
+        **edit_ctx,
+    )
+
+
+@leave_bp.route('/<int:id>/delete', methods=['POST'])
+@login_required
+def delete_request(id):
+    """Delete a leave request."""
+    lr = db.session.get(LeaveRequest, id)
+    if not lr:
+        abort(404)
+    emp = db.session.get(Employee, lr.employee_id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    can_manage_all = current_user.has_permission('approve_leave')
+    if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
+        abort(403)
+    db.session.delete(lr)
+    db.session.commit()
+    flash('Leave request deleted.', 'success')
+    return redirect(url_for('leave.index'))
+
+
 @leave_bp.route('/api/suggest-end-date')
 @login_required
 def suggest_end_date():
@@ -473,17 +587,15 @@ def suggest_end_date():
     basis = (lt.days_count_basis or 'working').lower()
     if basis not in ('working', 'calendar'):
         basis = 'working'
-    exclude_h = None
-    if basis == 'working':
-        exclude_h = public_holiday_dates_in_range(
-            start,
-            start + timedelta(days=400),
-            emp.company_id,
-            _leave_country_for_employee(emp),
-        )
+    exclude_h = public_holiday_dates_in_range(
+        start,
+        start + timedelta(days=400),
+        emp.company_id,
+        _leave_country_for_employee(emp),
+    )
     end = end_date_for_inclusive_leave_days(start, total, basis, exclude_dates=exclude_h)
     basis_label = (
-        'calendar days (including weekends)'
+        'calendar days (including weekends; excluding public holidays you configure)'
         if basis == 'calendar'
         else 'working days (Mon–Fri; excludes weekends and public holidays you configure)'
     )
@@ -538,6 +650,143 @@ def leave_balance_preview():
         code = 404 if data['error'] in ('invalid_leave_type', 'invalid_employee') else 400
         return jsonify(data), code
     return jsonify(data)
+
+
+@leave_bp.route('/tracker')
+@login_required
+@permission_required('manage_leave_types')
+def tracker():
+    """Annual leave tracker: employee summary + day-by-day calendar grid."""
+    cid = require_company_id()
+    today = date.today()
+    year = request.args.get('year', type=int) or today.year
+    q = (request.args.get('q') or '').strip()
+    y0 = date(year, 1, 1)
+    y1 = date(year, 12, 31)
+
+    emp_q = db.session.query(Employee).filter(Employee.company_id == cid)
+    if q:
+        like = f'%{q}%'
+        emp_q = emp_q.filter(
+            db.or_(
+                Employee.first_name.ilike(like),
+                Employee.last_name.ilike(like),
+                Employee.employee_number.ilike(like),
+            )
+        )
+    employees = emp_q.order_by(Employee.last_name, Employee.first_name).all()
+    leave_types = (
+        db.session.query(LeaveType)
+        .filter(LeaveType.company_id == cid, LeaveType.is_active.is_(True))
+        .order_by(LeaveType.name)
+        .all()
+    )
+    emp_by_id = {e.id: e for e in employees}
+    lt_by_id = {lt.id: lt for lt in leave_types}
+
+    months = []
+    for month in range(1, 13):
+        first = date(year, month, 1)
+        last = date(year, month, calendar.monthrange(year, month)[1])
+        grid_start = first - timedelta(days=first.weekday())  # Monday-start weeks
+        grid_end = last + timedelta(days=(6 - last.weekday()))
+        weeks = []
+        d = grid_start
+        while d <= grid_end:
+            week_days = []
+            for _ in range(7):
+                week_days.append(d if d.month == month else None)
+                d += timedelta(days=1)
+            weeks.append(week_days)
+        months.append(
+            {
+                'month': month,
+                'name': calendar.month_name[month],
+                'weeks': weeks,
+            }
+        )
+
+    emp_ids = [e.id for e in employees]
+    requests = []
+    if emp_ids:
+        requests = (
+            db.session.query(LeaveRequest)
+            .filter(
+                LeaveRequest.employee_id.in_(emp_ids),
+                LeaveRequest.status == 'approved',
+                LeaveRequest.start_date <= y1,
+                LeaveRequest.end_date >= y0,
+            )
+            .order_by(LeaveRequest.employee_id, LeaveRequest.start_date, LeaveRequest.id)
+            .all()
+        )
+
+    employee_day_marks: dict[int, dict[date, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for r in requests:
+        lt = lt_by_id.get(r.leave_type_id)
+        if not lt:
+            continue
+        emp = emp_by_id.get(r.employee_id)
+        if not emp:
+            continue
+        basis = (lt.days_count_basis or 'working').lower()
+        if basis not in ('working', 'calendar'):
+            basis = 'working'
+        req_start = max(r.start_date, y0)
+        req_end = min(r.end_date, y1)
+        excl = public_holiday_dates_in_range(
+            req_start,
+            req_end,
+            emp.company_id,
+            _leave_country_for_employee(emp),
+        )
+        dd = req_start
+        code = (lt.code or lt.name or 'L')[:3].upper()
+        while dd <= req_end:
+            is_leave_day = False
+            if basis == 'working':
+                is_leave_day = dd.weekday() < 5 and dd not in excl
+            else:
+                is_leave_day = dd not in excl
+            if is_leave_day and code not in employee_day_marks[emp.id][dd]:
+                employee_day_marks[emp.id][dd].append(code)
+            dd += timedelta(days=1)
+
+    rows = []
+    for emp in employees:
+        stats = statistics_for_employee(emp.id, year)
+        stat_map = {row['leave_type_id']: row for row in stats}
+        used_by_type = {}
+        remaining_by_type = {}
+        carry_forward_total = Decimal('0')
+        for lt in leave_types:
+            s = stat_map.get(lt.id)
+            used = s.get('used') if s else Decimal('0')
+            remaining = s.get('remaining') if s else None
+            used_by_type[lt.id] = used
+            remaining_by_type[lt.id] = remaining
+            if s and s.get('mode') == 'ledger':
+                carry_forward_total += Decimal(str(s.get('opening_balance') or 0))
+        rows.append(
+            {
+                'employee': emp,
+                'carry_forward_total': carry_forward_total,
+                'used_by_type': used_by_type,
+                'remaining_by_type': remaining_by_type,
+                'day_marks': employee_day_marks.get(emp.id, {}),
+            }
+        )
+
+    return render_template(
+        'leave/tracker.html',
+        year=year,
+        q=q,
+        year_choices=[year - 1, year, year + 1],
+        months=months,
+        weekday_names=['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        leave_types=leave_types,
+        rows=rows,
+    )
 
 
 @leave_bp.route('/<int:id>/approve', methods=['GET', 'POST'])

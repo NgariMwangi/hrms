@@ -69,6 +69,8 @@ def create_app(config_object=None):
 
     # Initialize extensions
     _init_extensions(app)
+    from app.services.audit_service import register_auto_audit_listeners
+    register_auto_audit_listeners()
 
     # Load all models and create tables *before* blueprints (so metadata has full dependency order).
     with app.app_context():
@@ -80,6 +82,7 @@ def create_app(config_object=None):
             Permission,
             UserRole,
             Employee,
+            EmployeeAssignmentHistory,
             Department,
             JobTitle,
             StatutoryRateType,
@@ -150,6 +153,7 @@ _TABLE_ORDER = (
     'statutory_rates', 'paye_brackets', 'nssf_tiers',
     'employees',   # before users (User.employee_id -> employees)
     'users', 'user_roles',
+    'employee_assignment_history',
     'audit_logs', 'leave_balances', 'leave_requests', 'employee_salaries', 'employee_allowances',
     'deductions', 'employee_deductions',
     'attendance_records', 'employee_documents', 'employee_benefits', 'employee_benefit_payments', 'casual_workers', 'casual_payments',

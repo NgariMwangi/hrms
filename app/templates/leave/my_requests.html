@@ -1,7 +1,14 @@
 {% extends "layouts/base.html" %}
 {% block title %}Request Leave - {{ app_name }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-2">Request Leave</h1>
+<h1 class="h3 mb-2">{{ form_title or 'Request Leave' }}</h1>
+{% if edit_employee %}
+<p class="mb-2">
+    <span class="badge text-bg-light border">
+        Editing leave for: {{ edit_employee.employee_number or 'No Number' }} — {{ edit_employee.full_name }}
+    </span>
+</p>
+{% endif %}
 <p class="text-muted small mb-3">The number of days is calculated from your dates: <strong>working days</strong> (Mon–Fri) or <strong>calendar days</strong> (including weekends), depending on the leave type — set under <em>Leave types</em>. You must nominate a colleague to <strong>hand your duties over to</strong> while you are away (when other active employees exist). After you choose a leave type, your <strong>accrued</strong> and <strong>available</strong> balance for that year appears below the form.</p>
 
 <div class="alert alert-info py-2 small mb-3" id="entitlement-helper" style="display:none;">
@@ -11,7 +18,7 @@
 </div>
 <div class="alert alert-secondary py-2 small mb-3 d-none" id="entitlement-helper-none"></div>
 
-<form method="post" action="{{ url_for('leave.request_leave') }}">
+<form method="post" action="{{ form_action or url_for('leave.request_leave') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">
         <div class="col-md-6">
@@ -33,7 +40,12 @@
             {% for e in form.handover_to_id.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
         </div>
         <div class="col-12">{{ form.reason.label(class='form-label') }}{{ form.reason(class_='form-control') }}</div>
-        <div class="col-12"><button type="submit" class="btn btn-primary">Submit Request</button></div>
+        <div class="col-12">
+            <button type="submit" class="btn btn-primary">{{ form_submit_label or 'Submit Request' }}</button>
+            {% if form_action %}
+            <a href="{{ url_for('leave.index') }}" class="btn btn-outline-secondary">Cancel</a>
+            {% endif %}
+        </div>
     </div>
 </form>
 {% include 'leave/_request_balance_preview.html' %}

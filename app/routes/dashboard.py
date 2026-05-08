@@ -69,6 +69,9 @@ def index():
     probation_alert_window_days = 14
     probation_nearing = []
     probation_arrived = []
+    contract_alert_window_days = 60
+    contract_nearing = []
+    contract_arrived = []
     if current_user.has_permission('edit_employees'):
         probation_rows = (
             db.session.query(Employee)
@@ -100,6 +103,38 @@ def index():
                 )
         probation_nearing.sort(key=lambda item: (item['days_to_end'], item['employee'].full_name.lower()))
         probation_arrived.sort(key=lambda item: (item['days_to_end'], item['employee'].full_name.lower()))
+
+        contract_rows = (
+            db.session.query(Employee)
+            .filter(
+                Employee.company_id == cid,
+                Employee.status == 'active',
+                Employee.employment_type == 'contract',
+                Employee.contract_end_date.isnot(None),
+            )
+            .all()
+        )
+        for emp in contract_rows:
+            end_date = emp.contract_end_date
+            days_to_end = (end_date - today).days
+            if 1 <= days_to_end <= contract_alert_window_days:
+                contract_nearing.append(
+                    {
+                        'employee': emp,
+                        'contract_end_date': end_date,
+                        'days_to_end': days_to_end,
+                    }
+                )
+            elif days_to_end <= 0:
+                contract_arrived.append(
+                    {
+                        'employee': emp,
+                        'contract_end_date': end_date,
+                        'days_to_end': days_to_end,
+                    }
+                )
+        contract_nearing.sort(key=lambda item: (item['days_to_end'], item['employee'].full_name.lower()))
+        contract_arrived.sort(key=lambda item: (item['days_to_end'], item['employee'].full_name.lower()))
 
     # Upcoming birthdays (admins / HR users with employee visibility)
     birthday_window_days = 14
@@ -210,6 +245,9 @@ def index():
         probation_alert_window_days=probation_alert_window_days,
         probation_nearing=probation_nearing,
         probation_arrived=probation_arrived,
+        contract_alert_window_days=contract_alert_window_days,
+        contract_nearing=contract_nearing,
+        contract_arrived=contract_arrived,
         upcoming_birthdays=upcoming_birthdays,
         birthday_window_days=birthday_window_days,
     )

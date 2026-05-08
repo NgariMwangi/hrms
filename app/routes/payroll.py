@@ -15,6 +15,7 @@ from app.models.payroll import (
 from app.models.employee import Employee as EmpModel
 from app.models.company import Branch
 from app.models.overtime import OvertimeRequest
+from app.models.benefit import EmployeeBenefit
 from app.forms.payroll_forms import PayrollRunForm, PayrollApproveForm
 from app.services.payroll_engine import calculate_employee_payroll, pro_rata_factor
 from app.services.deduction_service import get_manual_deduction_line_items_for_run
@@ -28,6 +29,7 @@ from app.utils.tenant import require_company_id
 from app.utils.currency import currency_for_country
 from datetime import date
 from sqlalchemy import update
+from sqlalchemy import extract
 from sqlalchemy.orm import joinedload
 
 payroll_bp = Blueprint('payroll', __name__)
@@ -124,6 +126,10 @@ def run_calculate(id):
         from flask import abort
         abort(404)
     pay_date = date(run_obj.pay_year, run_obj.pay_month, 1)
+    from calendar import monthrange
+    _, month_last_day = monthrange(run_obj.pay_year, run_obj.pay_month)
+    period_start = date(run_obj.pay_year, run_obj.pay_month, 1)
+    period_end = date(run_obj.pay_year, run_obj.pay_month, month_last_day)
     run_cc = _cc(run_obj.country_code)
     run_currency = currency_for_country(run_cc)
     # Get active employees, then determine who is eligible (has salary for this pay date)
@@ -143,9 +149,9 @@ def run_calculate(id):
     for emp in employees:
         salary = db.session.query(EmployeeSalary).filter(
             EmployeeSalary.employee_id == emp.id,
-            EmployeeSalary.effective_from <= pay_date,
-            (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= pay_date),
-        ).order_by(EmployeeSalary.effective_from.desc()).first()
+            EmployeeSalary.effective_from <= period_end,
+            (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
+        ).order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc()).first()
         if salary:
             eligible_employee_ids.add(emp.id)
         else:
@@ -193,17 +199,44 @@ def run_calculate(id):
                 continue
             salary = db.session.query(EmployeeSalary).filter(
                 EmployeeSalary.employee_id == emp.id,
-                EmployeeSalary.effective_from <= pay_date,
-                (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= pay_date),
-            ).order_by(EmployeeSalary.effective_from.desc()).first()
+                EmployeeSalary.effective_from <= period_end,
+                (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
+            ).order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc()).first()
             if not salary:
                 continue
-            factor = pro_rata_factor(emp.hire_date, emp.termination_date, run_obj.pay_month, run_obj.pay_year)
+            # Pro-rate using employee lifecycle and salary window overlap.
+            hire_or_start = emp.hire_date
+            if salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
+                hire_or_start = salary.effective_from
+            end_or_termination = emp.termination_date
+            if salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
+                end_or_termination = salary.effective_to
+            if getattr(emp, 'prorate_payroll', True):
+                factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)
+            else:
+                factor = Decimal('1')
             # Use EmployeeAllowance table if any assignments exist for this pay date
             emp_allowances = db.session.query(EmployeeAllowance).filter(
                 EmployeeAllowance.employee_id == emp.id,
                 EmployeeAllowance.effective_from <= pay_date,
                 (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= pay_date),
+            ).all()
+            emp_benefits = db.session.query(EmployeeBenefit).filter(
+                EmployeeBenefit.employee_id == emp.id,
+                EmployeeBenefit.is_active.is_(True),
+                db.or_(
+                    db.and_(
+                        EmployeeBenefit.payroll_year == run_obj.pay_year,
+                        EmployeeBenefit.payroll_month == run_obj.pay_month,
+                    ),
+                    db.and_(
+                        EmployeeBenefit.payroll_year.is_(None),
+                        EmployeeBenefit.payroll_month.is_(None),
+                        EmployeeBenefit.effective_date.isnot(None),
+                        extract('year', EmployeeBenefit.effective_date) == run_obj.pay_year,
+                        extract('month', EmployeeBenefit.effective_date) == run_obj.pay_month,
+                    ),
+                ),
             ).all()
             manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
             ot_rows = (
@@ -219,8 +252,10 @@ def run_calculate(id):
                 .all()
             )
             overtime_days = sum((Decimal(str(r.days)) for r in ot_rows), start=Decimal('0'))
-            if emp_allowances:
-                allowance_breakdown = [
+            if emp_allowances or emp_benefits:
+                allowance_breakdown = []
+                if emp_allowances:
+                    allowance_breakdown.extend([
                     {
                         'amount': ea.amount,
                         'is_taxable': ea.allowance.is_taxable,
@@ -229,7 +264,25 @@ def run_calculate(id):
                         'name': ea.allowance.name,
                     }
                     for ea in emp_allowances
-                ]
+                    ])
+                else:
+                    # Preserve legacy salary allowance behavior when no EmployeeAllowance rows exist.
+                    allowance_breakdown.extend([
+                        {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'code': 'HOUSE', 'name': 'House Allowance'},
+                        {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
+                        {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'MEAL', 'name': 'Meal Allowance'},
+                        {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
+                    ])
+                allowance_breakdown.extend(
+                    {
+                        'amount': b.amount,
+                        'is_taxable': False,
+                        'is_pensionable': False,
+                        'code': f'BEN-{b.id}',
+                        'name': b.title or 'Benefit',
+                    }
+                    for b in emp_benefits
+                )
                 calc = calculate_employee_payroll(
                     basic_salary=salary.basic_salary,
                     pension_employee_percent=salary.pension_employee_percent,

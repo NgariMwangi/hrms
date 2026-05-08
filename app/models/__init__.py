@@ -5,6 +5,7 @@ Import all models here so they are registered with Flask-Migrate.
 from app.models.user import User, Role, Permission, UserRole
 from app.models.company import Company, Branch
 from app.models.employee import Employee
+from app.models.employee_assignment_history import EmployeeAssignmentHistory
 from app.models.department import Department
 from app.models.job_title import JobTitle
 from app.models.statutory import (
@@ -45,6 +46,7 @@ __all__ = [
     'Permission',
     'UserRole',
     'Employee',
+    'EmployeeAssignmentHistory',
     'Department',
     'JobTitle',
     'StatutoryRateType',

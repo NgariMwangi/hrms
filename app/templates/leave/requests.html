@@ -6,6 +6,7 @@
     {% if has_permission('manage_leave_types') %}
     <a href="{{ url_for('leave.types_index') }}" class="btn btn-outline-secondary btn-sm">Configure leave types</a>
     <a href="{{ url_for('leave.balances') }}" class="btn btn-outline-secondary btn-sm">Leave balances</a>
+    <a href="{{ url_for('leave.tracker') }}" class="btn btn-outline-secondary btn-sm">Leave tracker</a>
     <a href="{{ url_for('leave.admin_request_leave') }}" class="btn btn-outline-secondary btn-sm">Apply leave for employee</a>
     <a href="{{ url_for('leave.holidays_index') }}" class="btn btn-outline-secondary btn-sm">Public holidays</a>
     {% endif %}
@@ -94,7 +95,19 @@
                 {% endif %}
             </td>
             <td><span class="badge bg-{{ 'warning' if r.status == 'pending' else 'success' if r.status == 'approved' else 'danger' }}">{{ r.status }}</span></td>
-            <td>{% if r.status == 'pending' and has_permission('approve_leave') %}<a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Approve/Reject</a>{% endif %}</td>
+            <td class="text-nowrap">
+                {% set can_modify = has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id) %}
+                {% if can_modify %}
+                <a href="{{ url_for('leave.edit_request', id=r.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                <form method="post" action="{{ url_for('leave.delete_request', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave request?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                </form>
+                {% endif %}
+                {% if r.status == 'pending' and has_permission('approve_leave') %}
+                <a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Approve/Reject</a>
+                {% endif %}
+            </td>
         </tr>
         {% else %}
         <tr><td colspan="9" class="text-muted">No leave requests.</td></tr>

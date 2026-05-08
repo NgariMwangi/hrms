@@ -2,7 +2,7 @@
 from flask_wtf import FlaskForm
 from wtforms import (
     StringField, DateField, SelectField, TextAreaField, SubmitField,
-    FloatField, IntegerField,
+    FloatField, IntegerField, BooleanField,
 )
 from wtforms.validators import DataRequired, Optional, Email, ValidationError
 from datetime import date
@@ -80,7 +80,9 @@ class EmployeeForm(FlaskForm):
     probation_start_date = DateField('Probation Start Date', validators=[Optional()])
     probation_end_date = DateField('Probation End Date', validators=[Optional()])
     confirmation_date = DateField('Confirmation Date', validators=[Optional()])
+    contract_start_date = DateField('Contract Start Date', validators=[Optional()])
     contract_end_date = DateField('Contract End Date', validators=[Optional()])
+    prorate_payroll = BooleanField('Prorate payroll for partial months', default=True)
     bank_name = StringField('Bank Name', validators=[Optional()])
     bank_branch = StringField('Bank branch', validators=[Optional()])
     bank_account_number = StringField('Account Number', validators=[Optional()])
@@ -106,6 +108,15 @@ class EmployeeForm(FlaskForm):
                 raise ValidationError('Probation end date is required for probation employment type.')
             if field.data < self.probation_start_date.data:
                 raise ValidationError('Probation end date cannot be before probation start date.')
+
+    def validate_contract_end_date(self, field):
+        if self.employment_type.data == 'contract':
+            if not self.contract_start_date.data:
+                raise ValidationError('Contract start date is required for contract employment type.')
+            if not field.data:
+                raise ValidationError('Contract end date is required for contract employment type.')
+            if field.data < self.contract_start_date.data:
+                raise ValidationError('Contract end date cannot be before contract start date.')
 
 
 class EmployeeSalaryForm(FlaskForm):

@@ -337,13 +337,28 @@ def run_calculate(id):
     if request.method == 'POST' and request.form.get('action') == 'save_exclusions':
         selected = set(request.form.getlist('excluded_employee_ids', type=int))
         selected = {eid for eid in selected if eid in eligible_employee_ids}
+        employee_id_scope = {e.id for e in employees}
+        table_scope = set(request.form.getlist('exclusion_table_employee_ids', type=int)) & employee_id_scope
+        if table_scope:
+            new_excluded = set()
+            for eid in eligible_employee_ids:
+                if eid in table_scope:
+                    if eid in selected:
+                        new_excluded.add(eid)
+                elif eid in excluded_employee_ids:
+                    new_excluded.add(eid)
+        else:
+            new_excluded = selected
         db.session.query(PayrollRunExclusion).filter(
             PayrollRunExclusion.payroll_run_id == run_obj.id
         ).delete()
-        for eid in sorted(selected):
+        for eid in sorted(new_excluded):
             db.session.add(PayrollRunExclusion(payroll_run_id=run_obj.id, employee_id=eid))
         db.session.commit()
-        flash(f'Payroll exclusions updated ({len(selected)} employee(s) excluded).', 'success')
+        flash(f'Payroll exclusions updated ({len(new_excluded)} employee(s) excluded).', 'success')
+        q_save = (request.form.get('q') or '').strip()
+        if q_save:
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_save))
         return redirect(url_for('payroll.run_calculate', id=run_obj.id))
 
     if request.method == 'POST' and request.form.get('action') == 'calculate':
@@ -521,36 +536,62 @@ def run_calculate(id):
         return redirect(url_for('payroll.view_run', id=run_obj.id))
 
     if request.method == 'POST' and request.form.get('action') == 'recalculate_employee':
+        q_rec = (request.form.get('q') or '').strip()
         emp_id = request.form.get('employee_id', type=int)
         if not emp_id:
             flash('Select an employee to recalculate.', 'danger')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
         emp = next((e for e in employees if e.id == emp_id), None)
         if not emp:
             flash('Employee not found in this payroll country scope.', 'danger')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
         if emp.id in excluded_employee_ids:
             flash('Employee is excluded from this run. Remove exclusion first.', 'warning')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
         ok, err = _recalculate_single_employee(emp)
         if not ok:
             flash(err or 'Could not recalculate employee.', 'danger')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
         db.session.commit()
         flash(f'Payroll recalculated for {emp.full_name}.', 'success')
         return redirect(url_for('payroll.view_run', id=run_obj.id))
+    q = (request.args.get('q') or '').strip()
+    employees_table = employees
+    missing_salary_display = missing_salary
+    if q:
+        needle = q.lower()
+        employees_table = [
+            e
+            for e in employees
+            if needle in (e.full_name or '').lower() or needle in str(e.employee_number or '').lower()
+        ]
+        missing_salary_display = [
+            e
+            for e in missing_salary
+            if needle in (e.full_name or '').lower() or needle in str(e.employee_number or '').lower()
+        ]
     return render_template(
         'payroll/run_calculate.html',
         run=run_obj,
         run_country_code=run_cc,
         run_currency=run_currency,
-        employees=employees,
+        employees=employees_table,
+        active_employee_count=len(employees),
         eligible_count=eligible_count,
         excluded_employee_ids=excluded_employee_ids,
         excluded_count=excluded_count,
         included_count=included_count,
         missing_salary_ids=missing_salary_ids,
-        missing_salary=missing_salary,
+        missing_salary=missing_salary_display,
+        q=q,
     )
 
 
@@ -636,8 +677,18 @@ def view_run(id):
     if not run_obj or run_obj.company_id != require_company_id():
         from flask import abort
         abort(404)
+    q = (request.args.get('q') or '').strip()
     items = run_obj.items.all()
-    return render_template('payroll/view_run.html', run=run_obj, items=items)
+    if q:
+        needle = q.lower()
+        items = [
+            it for it in items
+            if it.employee and (
+                needle in (it.employee.full_name or '').lower()
+                or needle in str(it.employee.employee_number or '').lower()
+            )
+        ]
+    return render_template('payroll/view_run.html', run=run_obj, items=items, q=q)
 
 
 @payroll_bp.route('/run/<int:id>/approve', methods=['POST'])

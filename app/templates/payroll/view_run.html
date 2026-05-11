@@ -39,6 +39,25 @@
     {% endif %}
     <a href="{{ url_for('payroll.index') }}" class="btn btn-outline-secondary">Back to list</a>
 </div>
+<form method="get" class="row g-2 mb-3">
+    <div class="col-md-4">
+        <input
+            type="text"
+            name="q"
+            class="form-control"
+            placeholder="Search employee name or number"
+            value="{{ q or '' }}"
+        />
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-outline-primary">Search</button>
+    </div>
+    {% if q %}
+    <div class="col-auto">
+        <a href="{{ url_for('payroll.view_run', id=run.id) }}" class="btn btn-outline-secondary">Clear</a>
+    </div>
+    {% endif %}
+</form>
 {% if run.finance_reviewed_at or run.paid_at %}
 <div class="card mb-3">
     <div class="card-body py-2">

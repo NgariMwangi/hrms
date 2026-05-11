@@ -8,7 +8,6 @@ from app.models.payroll import (
     PayrollItem,
     EmployeeSalary,
     EmployeeAllowance,
-    EmployeeDeduction,
     PayrollStatutoryRemittance,
     PayrollRunManualDeduction,
     PayrollRunExclusion,
@@ -17,7 +16,6 @@ from app.models.employee import Employee as EmpModel
 from app.models.company import Branch
 from app.models.overtime import OvertimeRequest
 from app.models.benefit import EmployeeBenefit
-from app.models.employer import Employer
 from app.forms.payroll_forms import PayrollRunForm, PayrollApproveForm
 from app.services.payroll_engine import calculate_employee_payroll, pro_rata_factor
 from app.services.deduction_service import get_manual_deduction_line_items_for_run
@@ -169,7 +167,7 @@ def run_calculate(id):
     excluded_count = len(excluded_employee_ids & eligible_employee_ids)
     included_count = max(eligible_count - excluded_count, 0)
 
-    def _recalculate_single_employee(emp, welfare_kit_amount: Decimal):
+    def _recalculate_single_employee(emp):
         """Recalculate payroll lines for one employee in this run."""
         salary = db.session.query(EmployeeSalary).filter(
             EmployeeSalary.employee_id == emp.id,
@@ -241,21 +239,6 @@ def run_calculate(id):
             ),
         ).all()
         manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
-        has_employee_welfare = db.session.query(EmployeeDeduction.id).filter(
-            EmployeeDeduction.employee_id == emp.id,
-            EmployeeDeduction.is_active.is_(True),
-            EmployeeDeduction.effective_from <= pay_date,
-            (EmployeeDeduction.effective_to.is_(None)) | (EmployeeDeduction.effective_to >= pay_date),
-            EmployeeDeduction.title == 'Welfare Kit',
-        ).first() is not None
-        if welfare_kit_amount > 0 and not has_employee_welfare:
-            manual_lines = list(manual_lines) + [
-                {
-                    'code': 'WELFARE_KIT',
-                    'name': 'Welfare Kit',
-                    'amount': welfare_kit_amount.quantize(Decimal('0.01')),
-                }
-            ]
         ot_rows = (
             db.session.query(OvertimeRequest)
             .filter(
@@ -364,8 +347,6 @@ def run_calculate(id):
         return redirect(url_for('payroll.run_calculate', id=run_obj.id))
 
     if request.method == 'POST' and request.form.get('action') == 'calculate':
-        employer_profile = db.session.query(Employer).filter(Employer.company_id == run_obj.company_id).first()
-        welfare_kit_amount = Decimal(str(getattr(employer_profile, 'welfare_kit_deduction', 0) or 0))
         excluded_employee_ids = {
             row.employee_id
             for row in db.session.query(PayrollRunExclusion)
@@ -441,21 +422,6 @@ def run_calculate(id):
             manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
             # Avoid double deduction: if employee already has an active recurring Welfare Kit
             # deduction (e.g. via bulk setup), do not also apply the employer-level flat amount.
-            has_employee_welfare = db.session.query(EmployeeDeduction.id).filter(
-                EmployeeDeduction.employee_id == emp.id,
-                EmployeeDeduction.is_active.is_(True),
-                EmployeeDeduction.effective_from <= pay_date,
-                (EmployeeDeduction.effective_to.is_(None)) | (EmployeeDeduction.effective_to >= pay_date),
-                EmployeeDeduction.title == 'Welfare Kit',
-            ).first() is not None
-            if welfare_kit_amount > 0 and not has_employee_welfare:
-                manual_lines = list(manual_lines) + [
-                    {
-                        'code': 'WELFARE_KIT',
-                        'name': 'Welfare Kit',
-                        'amount': welfare_kit_amount.quantize(Decimal('0.01')),
-                    }
-                ]
             ot_rows = (
                 db.session.query(OvertimeRequest)
                 .filter(
@@ -559,8 +525,6 @@ def run_calculate(id):
         if not emp_id:
             flash('Select an employee to recalculate.', 'danger')
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
-        employer_profile = db.session.query(Employer).filter(Employer.company_id == run_obj.company_id).first()
-        welfare_kit_amount = Decimal(str(getattr(employer_profile, 'welfare_kit_deduction', 0) or 0))
         emp = next((e for e in employees if e.id == emp_id), None)
         if not emp:
             flash('Employee not found in this payroll country scope.', 'danger')
@@ -568,7 +532,7 @@ def run_calculate(id):
         if emp.id in excluded_employee_ids:
             flash('Employee is excluded from this run. Remove exclusion first.', 'warning')
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
-        ok, err = _recalculate_single_employee(emp, welfare_kit_amount)
+        ok, err = _recalculate_single_employee(emp)
         if not ok:
             flash(err or 'Could not recalculate employee.', 'danger')
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))

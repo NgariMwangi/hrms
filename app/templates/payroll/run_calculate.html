@@ -24,7 +24,7 @@
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
                     <thead>
-                        <tr><th style="width: 56px;">Exclude</th><th>Employee</th><th>Status</th></tr>
+                        <tr><th style="width: 56px;">Exclude</th><th>Employee</th><th>Status</th><th>Recalculate</th></tr>
                     </thead>
                     <tbody>
                     {% for e in employees %}
@@ -46,6 +46,18 @@
                                     <span class="badge text-bg-light">Eligible</span>
                                 {% else %}
                                     <span class="badge text-bg-secondary">Missing salary</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if has_salary and (e.id not in excluded_employee_ids) %}
+                                <form method="post" action="{{ url_for('payroll.run_calculate', id=run.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="action" value="recalculate_employee"/>
+                                    <input type="hidden" name="employee_id" value="{{ e.id }}"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Recalculate</button>
+                                </form>
+                                {% else %}
+                                <span class="text-muted small">—</span>
                                 {% endif %}
                             </td>
                         </tr>

@@ -93,6 +93,9 @@
                         <td>{{ a.effective_from }} {% if a.effective_to %}→ {{ a.effective_to }}{% endif %}</td>
                         <td>{{ a.remaining_balance if a.remaining_balance is not none else '—' }}</td>
                         <td>
+                            {% if a.effective_to is none and a.is_active %}
+                            <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="collapse" data-bs-target="#stopDed{{ a.id }}" aria-expanded="false" aria-controls="stopDed{{ a.id }}">Stop</button>
+                            {% endif %}
                             <form method="post" class="d-inline" onsubmit="return confirm('Remove this deduction?');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="action" value="delete"/>
@@ -101,6 +104,31 @@
                             </form>
                         </td>
                     </tr>
+                    {% if a.effective_to is none and a.is_active %}
+                    <tr class="collapse" id="stopDed{{ a.id }}">
+                        <td colspan="6" class="bg-light">
+                            <form method="post" class="row g-2 p-2 align-items-end">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="action" value="stop"/>
+                                <input type="hidden" name="assignment_id" value="{{ a.id }}"/>
+                                <div class="col-md-5">
+                                    <label class="form-label mb-1">Last payroll month this deduction should apply</label>
+                                    <div class="d-flex gap-2">
+                                        <input type="number" name="last_payroll_year" class="form-control form-control-sm" min="2000" max="2100" required placeholder="Year">
+                                        <select name="last_payroll_month" class="form-select form-select-sm" required>
+                                            {% for m in range(1, 13) %}
+                                            <option value="{{ m }}">{{ "%02d"|format(m) }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-7">
+                                    <button type="submit" class="btn btn-sm btn-warning">Confirm stop</button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endif %}
                     {% else %}
                     <tr><td colspan="6" class="text-muted px-3 py-2">No deductions yet.</td></tr>
                     {% endfor %}

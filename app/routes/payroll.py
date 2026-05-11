@@ -169,6 +169,188 @@ def run_calculate(id):
     excluded_count = len(excluded_employee_ids & eligible_employee_ids)
     included_count = max(eligible_count - excluded_count, 0)
 
+    def _recalculate_single_employee(emp, welfare_kit_amount: Decimal):
+        """Recalculate payroll lines for one employee in this run."""
+        salary = db.session.query(EmployeeSalary).filter(
+            EmployeeSalary.employee_id == emp.id,
+            EmployeeSalary.effective_from <= period_end,
+            (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
+        ).order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc()).first()
+        if not salary:
+            return False, 'Employee has no salary setup for this period.'
+
+        # Release this employee's overtime rows tied to this run and remove existing payroll line.
+        db.session.execute(
+            update(OvertimeRequest)
+            .where(
+                OvertimeRequest.applied_to_payroll_run_id == run_obj.id,
+                OvertimeRequest.employee_id == emp.id,
+            )
+            .values(applied_to_payroll_run_id=None)
+        )
+        db.session.query(PayrollItem).filter(
+            PayrollItem.payroll_run_id == run_obj.id,
+            PayrollItem.employee_id == emp.id,
+        ).delete()
+
+        hire_or_start = emp.hire_date
+        if salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
+            hire_or_start = salary.effective_from
+        end_or_termination = emp.termination_date
+        if salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
+            end_or_termination = salary.effective_to
+        if getattr(emp, 'prorate_payroll', True):
+            factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)
+        else:
+            factor = Decimal('1')
+
+        emp_allowances = db.session.query(EmployeeAllowance).filter(
+            EmployeeAllowance.employee_id == emp.id,
+            EmployeeAllowance.effective_from <= pay_date,
+            (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= pay_date),
+        ).all()
+        emp_benefits = db.session.query(EmployeeBenefit).filter(
+            EmployeeBenefit.employee_id == emp.id,
+            EmployeeBenefit.is_active.is_(True),
+            db.or_(
+                db.and_(
+                    EmployeeBenefit.frequency == 'one_off',
+                    EmployeeBenefit.payroll_year == run_obj.pay_year,
+                    EmployeeBenefit.payroll_month == run_obj.pay_month,
+                ),
+                db.and_(
+                    EmployeeBenefit.frequency == 'monthly',
+                    EmployeeBenefit.payroll_year.isnot(None),
+                    EmployeeBenefit.payroll_month.isnot(None),
+                    db.or_(
+                        EmployeeBenefit.payroll_year < run_obj.pay_year,
+                        db.and_(
+                            EmployeeBenefit.payroll_year == run_obj.pay_year,
+                            EmployeeBenefit.payroll_month <= run_obj.pay_month,
+                        ),
+                    ),
+                ),
+                db.and_(
+                    db.or_(EmployeeBenefit.frequency.is_(None), EmployeeBenefit.frequency == ''),
+                    EmployeeBenefit.payroll_year.is_(None),
+                    EmployeeBenefit.payroll_month.is_(None),
+                    EmployeeBenefit.effective_date.isnot(None),
+                    extract('year', EmployeeBenefit.effective_date) == run_obj.pay_year,
+                    extract('month', EmployeeBenefit.effective_date) == run_obj.pay_month,
+                ),
+            ),
+        ).all()
+        manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
+        has_employee_welfare = db.session.query(EmployeeDeduction.id).filter(
+            EmployeeDeduction.employee_id == emp.id,
+            EmployeeDeduction.is_active.is_(True),
+            EmployeeDeduction.effective_from <= pay_date,
+            (EmployeeDeduction.effective_to.is_(None)) | (EmployeeDeduction.effective_to >= pay_date),
+            EmployeeDeduction.title == 'Welfare Kit',
+        ).first() is not None
+        if welfare_kit_amount > 0 and not has_employee_welfare:
+            manual_lines = list(manual_lines) + [
+                {
+                    'code': 'WELFARE_KIT',
+                    'name': 'Welfare Kit',
+                    'amount': welfare_kit_amount.quantize(Decimal('0.01')),
+                }
+            ]
+        ot_rows = (
+            db.session.query(OvertimeRequest)
+            .filter(
+                OvertimeRequest.company_id == run_obj.company_id,
+                OvertimeRequest.employee_id == emp.id,
+                OvertimeRequest.for_pay_month == run_obj.pay_month,
+                OvertimeRequest.for_pay_year == run_obj.pay_year,
+                OvertimeRequest.status == 'approved',
+                OvertimeRequest.applied_to_payroll_run_id.is_(None),
+            )
+            .all()
+        )
+        overtime_days = sum((Decimal(str(r.days)) for r in ot_rows), start=Decimal('0'))
+        if emp_allowances or emp_benefits:
+            allowance_breakdown = []
+            if emp_allowances:
+                allowance_breakdown.extend([
+                    {
+                        'amount': ea.amount,
+                        'is_taxable': ea.allowance.is_taxable,
+                        'is_pensionable': ea.allowance.is_pensionable,
+                        'code': ea.allowance.code,
+                        'name': ea.allowance.name,
+                    }
+                    for ea in emp_allowances
+                ])
+            else:
+                allowance_breakdown.extend([
+                    {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'code': 'HOUSE', 'name': 'House Allowance'},
+                    {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
+                    {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'MEAL', 'name': 'Meal Allowance'},
+                    {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
+                ])
+            allowance_breakdown.extend(
+                {
+                    'amount': b.amount,
+                    'is_taxable': True,
+                    'is_pensionable': True,
+                    'code': f'BEN-{b.id}',
+                    'name': b.title or 'Benefit',
+                }
+                for b in emp_benefits
+            )
+            calc = calculate_employee_payroll(
+                basic_salary=salary.basic_salary,
+                pension_employee_percent=salary.pension_employee_percent,
+                pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+                pay_date=pay_date,
+                pro_rata_factor=factor,
+                allowance_breakdown=allowance_breakdown,
+                employee_id=emp.id,
+                manual_deduction_lines=manual_lines,
+                statutory_company_id=emp.company_id,
+                statutory_country_code=run_cc,
+                overtime_days=overtime_days,
+            )
+        else:
+            calc = calculate_employee_payroll(
+                basic_salary=salary.basic_salary,
+                house_allowance=salary.house_allowance,
+                transport_allowance=salary.transport_allowance,
+                meal_allowance=salary.meal_allowance,
+                other_allowances=salary.other_allowances,
+                pension_employee_percent=salary.pension_employee_percent,
+                pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+                pay_date=pay_date,
+                pro_rata_factor=factor,
+                employee_id=emp.id,
+                manual_deduction_lines=manual_lines,
+                statutory_company_id=emp.company_id,
+                statutory_country_code=run_cc,
+                overtime_days=overtime_days,
+            )
+        for ot_r in ot_rows:
+            ot_r.applied_to_payroll_run_id = run_obj.id
+        db.session.add(
+            PayrollItem(
+                payroll_run_id=run_obj.id,
+                employee_id=emp.id,
+                gross_pay=calc['gross_pay'],
+                taxable_pay=calc['taxable_pay'],
+                paye=calc['paye'],
+                nssf_employee=calc['nssf_employee'],
+                nssf_employer=calc['nssf_employer'],
+                shif=calc['shif'],
+                housing_levy=calc['housing_levy'],
+                other_deductions=calc['other_deductions'],
+                net_pay=calc['net_pay'],
+                earnings_breakdown=calc['earnings_breakdown'],
+                deductions_breakdown=calc['deductions_breakdown'],
+                is_pro_rata=(factor < 1),
+            )
+        )
+        return True, None
+
     if request.method == 'POST' and request.form.get('action') == 'save_exclusions':
         selected = set(request.form.getlist('excluded_employee_ids', type=int))
         selected = {eid for eid in selected if eid in eligible_employee_ids}
@@ -370,6 +552,28 @@ def run_calculate(id):
         db.session.commit()
         processed = max(eligible_count - len(excluded_employee_ids & eligible_employee_ids), 0)
         flash(f'Payroll calculated for {processed} employee(s).', 'success')
+        return redirect(url_for('payroll.view_run', id=run_obj.id))
+
+    if request.method == 'POST' and request.form.get('action') == 'recalculate_employee':
+        emp_id = request.form.get('employee_id', type=int)
+        if not emp_id:
+            flash('Select an employee to recalculate.', 'danger')
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        employer_profile = db.session.query(Employer).filter(Employer.company_id == run_obj.company_id).first()
+        welfare_kit_amount = Decimal(str(getattr(employer_profile, 'welfare_kit_deduction', 0) or 0))
+        emp = next((e for e in employees if e.id == emp_id), None)
+        if not emp:
+            flash('Employee not found in this payroll country scope.', 'danger')
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        if emp.id in excluded_employee_ids:
+            flash('Employee is excluded from this run. Remove exclusion first.', 'warning')
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        ok, err = _recalculate_single_employee(emp, welfare_kit_amount)
+        if not ok:
+            flash(err or 'Could not recalculate employee.', 'danger')
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        db.session.commit()
+        flash(f'Payroll recalculated for {emp.full_name}.', 'success')
         return redirect(url_for('payroll.view_run', id=run_obj.id))
     return render_template(
         'payroll/run_calculate.html',

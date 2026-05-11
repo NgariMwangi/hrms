@@ -907,6 +907,32 @@ def employee_deductions(id):
                     db.session.delete(row)
                     db.session.commit()
                     flash('Deduction removed.', 'success')
+        elif action == 'stop':
+            from calendar import monthrange
+            aid = request.form.get('assignment_id', type=int)
+            last_year = request.form.get('last_payroll_year', type=int)
+            last_month = request.form.get('last_payroll_month', type=int)
+            if not aid:
+                flash('Deduction not found.', 'danger')
+                return redirect(url_for('employees.employee_deductions', id=id))
+            row = (
+                db.session.query(EmployeeDeduction)
+                .filter(EmployeeDeduction.id == aid, EmployeeDeduction.employee_id == id)
+                .first()
+            )
+            if not row:
+                flash('Deduction not found.', 'danger')
+            elif not last_year or not (2000 <= last_year <= 2100) or not last_month or not (1 <= last_month <= 12):
+                flash('Enter a valid last payroll month and year.', 'danger')
+            else:
+                last_day = monthrange(last_year, last_month)[1]
+                end_date = date(last_year, last_month, last_day)
+                if row.effective_from and end_date < row.effective_from:
+                    flash('Last payroll month cannot be before deduction effective-from date.', 'danger')
+                else:
+                    row.effective_to = end_date
+                    db.session.commit()
+                    flash(f'Deduction will stop after payroll {last_year}-{last_month:02d}.', 'success')
         return redirect(url_for('employees.employee_deductions', id=id))
     return render_template(
         'employees/deductions.html',

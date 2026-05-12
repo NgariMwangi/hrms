@@ -40,12 +40,19 @@ def get_working_days_in_month(year: int, month: int) -> int:
     return wd
 
 
-def pro_rata_factor(hire_date: date, termination_date: date, pay_month: int, pay_year: int) -> Decimal:
+def employment_partial_month_days(
+    hire_date: date | None,
+    termination_date: date | None,
+    pay_month: int,
+    pay_year: int,
+) -> tuple[int, bool]:
     """
-    Factor applied to monthly basic/allowances. Full month in the pay period: 1. Otherwise
-    (mid-month join and/or exit): days_worked / 30, i.e. (monthly_salary / 30) * calendar days in period.
+    Calendar days the employee is in employment during the pay month, and whether the month is partial.
+
+    Returns (days_worked_inclusive, is_partial). Full month => (days_in_month, False).
     """
     from calendar import monthrange
+
     month_start = date(pay_year, pay_month, 1)
     _, last_day = monthrange(pay_year, pay_month)
     month_end = date(pay_year, pay_month, last_day)
@@ -56,15 +63,47 @@ def pro_rata_factor(hire_date: date, termination_date: date, pay_month: int, pay
     if termination_date and termination_date < month_end:
         work_end = termination_date
     if work_start > work_end:
-        return Decimal('0')
+        return 0, True
     days_worked = (work_end - work_start).days + 1
     partial_month = (work_start > month_start) or (work_end < month_end)
-    if not partial_month:
+    return days_worked, partial_month
+
+
+def pro_rata_calendar_days_or_none(
+    hire_date: date | None,
+    termination_date: date | None,
+    pay_month: int,
+    pay_year: int,
+) -> int | None:
+    """If partial month, inclusive calendar days worked; if full month, None (use full monthly amounts)."""
+    days_worked, partial = employment_partial_month_days(
+        hire_date, termination_date, pay_month, pay_year
+    )
+    if not partial:
+        return None
+    return days_worked
+
+
+def pro_rata_factor(
+    hire_date: date | None,
+    termination_date: date | None,
+    pay_month: int,
+    pay_year: int,
+) -> Decimal:
+    """
+    Multiplier for legacy callers: 1 for a full month, otherwise days_worked / 30 (unrounded Decimal).
+
+    Prorated earnings use (monthly_amount / 30) * days_worked explicitly; see calculate_employee_payroll(..., pro_rata_calendar_days=...).
+    """
+    days_worked, partial = employment_partial_month_days(
+        hire_date, termination_date, pay_month, pay_year
+    )
+    if not partial:
         return Decimal('1')
     denom = Decimal(PRORATA_STANDARD_MONTH_DAYS)
     if denom <= 0:
         return Decimal('0')
-    return (Decimal(days_worked) / denom).quantize(Decimal('0.0001'))
+    return Decimal(days_worked) / denom
 
 
 def calculate_employee_payroll(
@@ -77,6 +116,7 @@ def calculate_employee_payroll(
     pension_employee_fixed_amount: Decimal = None,
     pay_date: date = None,
     pro_rata_factor: Decimal = None,
+    pro_rata_calendar_days: int | None = None,
     other_earnings: Decimal = None,
     other_deductions: Decimal = None,
     allowance_breakdown: list = None,
@@ -97,23 +137,35 @@ def calculate_employee_payroll(
     other_deductions: legacy fixed amount added to the same bucket (rarely used).
     overtime_days: optional approved overtime days; amount = (monthly_gross * 12 / 365) * days, added to gross
         and pensionable base for statutory calculations.
+    pro_rata_calendar_days: if set, partial-month earnings use (monthly_amount / 30) * this many calendar days
+        instead of monthly_amount * pro_rata_factor (avoids rounding the factor before multiplying).
     """
     pay_date = pay_date or date.today()
     scid = statutory_company_id
     scc = (statutory_country_code or 'KE').upper()[:2]
     factor = decimalize(pro_rata_factor) if pro_rata_factor is not None else Decimal('1')
+    pr_days = pro_rata_calendar_days
+    denom = Decimal(PRORATA_STANDARD_MONTH_DAYS)
+
+    def prorate_monthly(monthly_val: Decimal) -> Decimal:
+        """Full month: monthly * factor (factor 1). Partial: (monthly / 30) * calendar days worked."""
+        v = decimalize(monthly_val)
+        if pr_days is not None:
+            return (v / denom) * Decimal(pr_days)
+        return v * factor
+
     other_earn = decimalize(other_earnings)
     legacy_other = decimalize(other_deductions)
     pension_pct = decimalize(pension_employee_percent)
     pension_fixed = decimalize(pension_employee_fixed_amount)
-    basic = decimalize(basic_salary) * factor
+    basic = prorate_monthly(basic_salary)
 
     if allowance_breakdown:
         total_allowances = Decimal('0')
         pensionable_allowances = Decimal('0')
         earnings_breakdown = [{'code': 'BASIC', 'name': 'Basic Salary', 'amount': float(basic)}]
         for a in allowance_breakdown:
-            amt = decimalize(a.get('amount', 0)) * factor
+            amt = prorate_monthly(decimalize(a.get('amount', 0)))
             total_allowances += amt
             if a.get('is_pensionable'):
                 pensionable_allowances += amt
@@ -122,27 +174,31 @@ def calculate_employee_payroll(
                 'name': a.get('name', 'Allowance'),
                 'amount': float(amt),
             })
-        earnings_breakdown.append({'code': 'OTHER_EARN', 'name': 'Other Earnings', 'amount': float(other_earn)})
-        gross_pay = (basic + total_allowances + other_earn).quantize(Decimal('0.01'))
+        if pr_days is not None:
+            other_earn_adj = prorate_monthly(other_earn)
+        else:
+            other_earn_adj = other_earn
+        earnings_breakdown.append({'code': 'OTHER_EARN', 'name': 'Other Earnings', 'amount': float(other_earn_adj)})
+        gross_pay = (basic + total_allowances + other_earn_adj).quantize(Decimal('0.01'))
         pensionable = get_pensionable_pay(basic, pensionable_allowances, Decimal('0'))
     else:
         transport = decimalize(transport_allowance)
         meal = decimalize(meal_allowance)
         other_allow = decimalize(other_allowances)
         house = decimalize(house_allowance)
-        house = house * factor
-        transport = transport * factor
-        meal = meal * factor
-        other_allow = other_allow * factor
-        other_earn = other_earn * factor
-        gross_pay = (basic + house + transport + meal + other_allow + other_earn).quantize(Decimal('0.01'))
+        house = prorate_monthly(house)
+        transport = prorate_monthly(transport)
+        meal = prorate_monthly(meal)
+        other_allow = prorate_monthly(other_allow)
+        other_earn_adj = prorate_monthly(other_earn)
+        gross_pay = (basic + house + transport + meal + other_allow + other_earn_adj).quantize(Decimal('0.01'))
         pensionable = get_pensionable_pay(basic, house, Decimal('0'))
         earnings_breakdown = [
             {'code': 'BASIC', 'name': 'Basic Salary', 'amount': float(basic)},
             {'code': 'HOUSE', 'name': 'House Allowance', 'amount': float(house)},
             {'code': 'TRANSPORT', 'name': 'Transport Allowance', 'amount': float(transport)},
             {'code': 'MEAL', 'name': 'Meal Allowance', 'amount': float(meal)},
-            {'code': 'OTHER_ALLOW', 'name': 'Other Allowances', 'amount': float(other_allow + other_earn)},
+            {'code': 'OTHER_ALLOW', 'name': 'Other Allowances', 'amount': float(other_allow + other_earn_adj)},
         ]
 
     ot_days = decimalize(overtime_days) if overtime_days is not None else Decimal('0')
@@ -167,7 +223,13 @@ def calculate_employee_payroll(
     shif = calculate_shif(gross_pay, pay_date, scid, scc)
     housing_levy = calculate_housing_levy(gross_pay, pay_date, scid, scc)
     pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
-    pension_fixed_deduction = (pension_fixed * factor).quantize(Decimal('0.01')) if pension_fixed else Decimal('0')
+    if pension_fixed:
+        if pr_days is not None:
+            pension_fixed_deduction = ((pension_fixed / denom) * Decimal(pr_days)).quantize(Decimal('0.01'))
+        else:
+            pension_fixed_deduction = (pension_fixed * factor).quantize(Decimal('0.01'))
+    else:
+        pension_fixed_deduction = Decimal('0')
     if pension_fixed_deduction < 0:
         pension_fixed_deduction = Decimal('0')
     pension_total_for_month = (pension_deduction + pension_fixed_deduction).quantize(Decimal('0.01'))

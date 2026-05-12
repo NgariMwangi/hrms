@@ -17,7 +17,11 @@ from app.models.company import Branch
 from app.models.overtime import OvertimeRequest
 from app.models.benefit import EmployeeBenefit
 from app.forms.payroll_forms import PayrollRunForm, PayrollApproveForm
-from app.services.payroll_engine import calculate_employee_payroll, pro_rata_factor
+from app.services.payroll_engine import (
+    calculate_employee_payroll,
+    pro_rata_calendar_days_or_none,
+    pro_rata_factor,
+)
 from app.services.deduction_service import get_manual_deduction_line_items_for_run
 from app.services.statutory_remittance_service import (
     replace_statutory_remitances_for_run,
@@ -199,8 +203,12 @@ def run_calculate(id):
             end_or_termination = salary.effective_to
         if getattr(emp, 'prorate_payroll', True):
             factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)
+            cal_days = pro_rata_calendar_days_or_none(
+                hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year
+            )
         else:
             factor = Decimal('1')
+            cal_days = None
 
         emp_allowances = db.session.query(EmployeeAllowance).filter(
             EmployeeAllowance.employee_id == emp.id,
@@ -288,6 +296,7 @@ def run_calculate(id):
                 pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
                 pay_date=pay_date,
                 pro_rata_factor=factor,
+                pro_rata_calendar_days=cal_days,
                 allowance_breakdown=allowance_breakdown,
                 employee_id=emp.id,
                 manual_deduction_lines=manual_lines,
@@ -306,6 +315,7 @@ def run_calculate(id):
                 pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
                 pay_date=pay_date,
                 pro_rata_factor=factor,
+                pro_rata_calendar_days=cal_days,
                 employee_id=emp.id,
                 manual_deduction_lines=manual_lines,
                 statutory_company_id=emp.company_id,
@@ -395,8 +405,12 @@ def run_calculate(id):
                 end_or_termination = salary.effective_to
             if getattr(emp, 'prorate_payroll', True):
                 factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)
+                cal_days = pro_rata_calendar_days_or_none(
+                    hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year
+                )
             else:
                 factor = Decimal('1')
+                cal_days = None
             # Use EmployeeAllowance table if any assignments exist for this pay date
             emp_allowances = db.session.query(EmployeeAllowance).filter(
                 EmployeeAllowance.employee_id == emp.id,
@@ -487,6 +501,7 @@ def run_calculate(id):
                     pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
                     pay_date=pay_date,
                     pro_rata_factor=factor,
+                    pro_rata_calendar_days=cal_days,
                     allowance_breakdown=allowance_breakdown,
                     employee_id=emp.id,
                     manual_deduction_lines=manual_lines,
@@ -505,6 +520,7 @@ def run_calculate(id):
                     pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
                     pay_date=pay_date,
                     pro_rata_factor=factor,
+                    pro_rata_calendar_days=cal_days,
                     employee_id=emp.id,
                     manual_deduction_lines=manual_lines,
                     statutory_company_id=emp.company_id,

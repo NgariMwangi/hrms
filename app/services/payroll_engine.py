@@ -5,7 +5,7 @@ Produces gross, taxable pay, deductions, net. Optionally pro-rata for mid-month 
 Optional pension deductions are employee-side only and do not affect employer contribution here.
 Net pay includes statutory deductions plus pension deductions and other deductions.
 """
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from app.services.statutory_service import (
     get_pensionable_pay,
@@ -18,6 +18,8 @@ from app.services.statutory_service import (
 from app.services.deduction_service import get_recurring_deduction_line_items
 
 KENYA_PENSION_TAX_DEDUCTIBLE_CAP = Decimal('30000')
+# Partial-month basic (and allowance lines using this factor): (monthly_basic / 30) * calendar_days_worked
+PRORATA_STANDARD_MONTH_DAYS = 30
 
 def decimalize(value) -> Decimal:
     """Ensure value is Decimal."""
@@ -40,8 +42,8 @@ def get_working_days_in_month(year: int, month: int) -> int:
 
 def pro_rata_factor(hire_date: date, termination_date: date, pay_month: int, pay_year: int) -> Decimal:
     """
-    Factor for pro-rating (0-1) for partial month.
-    hire_date/termination_date can be None for full month.
+    Factor applied to monthly basic/allowances. Full month in the pay period: 1. Otherwise
+    (mid-month join and/or exit): days_worked / 30, i.e. (monthly_salary / 30) * calendar days in period.
     """
     from calendar import monthrange
     month_start = date(pay_year, pay_month, 1)
@@ -55,12 +57,14 @@ def pro_rata_factor(hire_date: date, termination_date: date, pay_month: int, pay
         work_end = termination_date
     if work_start > work_end:
         return Decimal('0')
-    working_days = get_working_days_in_month(pay_year, pay_month)
-    days_worked = sum(1 for d in range((work_end - work_start).days + 1)
-                      if (work_start + timedelta(days=d)).weekday() < 5)
-    if working_days <= 0:
+    days_worked = (work_end - work_start).days + 1
+    partial_month = (work_start > month_start) or (work_end < month_end)
+    if not partial_month:
+        return Decimal('1')
+    denom = Decimal(PRORATA_STANDARD_MONTH_DAYS)
+    if denom <= 0:
         return Decimal('0')
-    return (Decimal(days_worked) / Decimal(working_days)).quantize(Decimal('0.0001'))
+    return (Decimal(days_worked) / denom).quantize(Decimal('0.0001'))
 
 
 def calculate_employee_payroll(

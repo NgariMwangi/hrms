@@ -47,6 +47,11 @@ from sqlalchemy.orm import joinedload
 leave_bp = Blueprint('leave', __name__)
 
 
+def _leave_request_is_pending(lr: LeaveRequest) -> bool:
+    """Only pending requests can be edited or deleted."""
+    return (lr.status or '').strip().lower() == 'pending'
+
+
 def _leave_country_for_employee(emp: Employee | None) -> str:
     if not emp or not emp.branch:
         return 'KE'
@@ -451,6 +456,9 @@ def edit_request(id):
     can_manage_all = current_user.has_permission('approve_leave')
     if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
         abort(403)
+    if not _leave_request_is_pending(lr):
+        flash('Only pending leave requests can be edited. Approved or finalized leave cannot be changed.', 'warning')
+        return redirect(url_for('leave.index'))
 
     form = LeaveRequestForm(obj=lr)
     form.leave_type_id.choices = _active_leave_type_choices_for_employee(lr.employee_id)
@@ -551,6 +559,9 @@ def delete_request(id):
     can_manage_all = current_user.has_permission('approve_leave')
     if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
         abort(403)
+    if not _leave_request_is_pending(lr):
+        flash('Only pending leave requests can be deleted.', 'warning')
+        return redirect(url_for('leave.index'))
     db.session.delete(lr)
     db.session.commit()
     flash('Leave request deleted.', 'success')

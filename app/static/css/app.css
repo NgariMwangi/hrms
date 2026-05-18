@@ -1033,3 +1033,36 @@ body.app-body {
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-sm);
 }
+
+/* Password show/hide toggle (login, change password, etc.) */
+.password-wrap {
+  position: relative;
+}
+
+.password-wrap .form-control.has-toggle {
+  padding-right: 2.75rem;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.4rem 0.55rem;
+  line-height: 1;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.password-toggle-btn:hover {
+  color: var(--app-accent);
+  background: var(--app-accent-soft);
+}
+
+.password-toggle-btn:focus {
+  outline: 2px solid var(--app-accent-glow);
+  outline-offset: 2px;
+}

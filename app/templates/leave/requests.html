@@ -19,7 +19,7 @@
 {% endmacro %}
 
 {% macro leave_request_actions(r) %}
-{% set can_modify = has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id) %}
+{% set can_modify = r.status == 'pending' and (has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id)) %}
 {% if can_modify %}
 <a href="{{ url_for('leave.edit_request', id=r.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
 <form method="post" action="{{ url_for('leave.delete_request', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave request?');">

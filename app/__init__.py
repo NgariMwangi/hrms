@@ -128,6 +128,8 @@ def create_app(config_object=None):
     # Context processors
     _register_context_processors(app)
 
+    _register_request_hooks(app)
+
     # Configure logging
     _configure_logging(app)
 
@@ -291,6 +293,25 @@ def _register_error_handlers(app):
         """
         flash('Your session expired. Please log in again and retry.', 'warning')
         return redirect(url_for('auth.login', next=request.path))
+
+
+def _register_request_hooks(app):
+    """Global request hooks (e.g. forced password change after bulk provisioning)."""
+    from flask import redirect, request, url_for
+    from flask_login import current_user
+
+    @app.before_request
+    def enforce_password_change():
+        if not current_user.is_authenticated:
+            return None
+        if not getattr(current_user, 'must_change_password', False):
+            return None
+        endpoint = request.endpoint or ''
+        if endpoint.startswith('static'):
+            return None
+        if endpoint in ('auth.login', 'auth.logout', 'auth.change_password'):
+            return None
+        return redirect(url_for('auth.change_password'))
 
 
 def _register_context_processors(app):

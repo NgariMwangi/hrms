@@ -7,6 +7,9 @@
         <a href="{{ url_for('employees.birthdays') }}" class="btn btn-outline-primary"><i class="bi bi-gift me-1"></i>Birthdays</a>
         <a href="{{ url_for('employees.probation_dates') }}" class="btn btn-outline-primary"><i class="bi bi-hourglass-split me-1"></i>Probation Dates</a>
         <a href="{{ url_for('employees.contract_dates') }}" class="btn btn-outline-primary"><i class="bi bi-calendar-event me-1"></i>Contract Dates</a>
+        {% if has_permission('edit_employees') %}
+        <a href="{{ url_for('employees.provision_login_accounts') }}" class="btn btn-outline-primary"><i class="bi bi-person-badge me-1"></i>Provision logins</a>
+        {% endif %}
         {% if has_permission('create_employees') %}
         <a href="{{ url_for('employees.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add Employee</a>
         {% endif %}

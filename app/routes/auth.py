@@ -63,6 +63,9 @@ def login():
         db.session.commit()
         login_user(user, remember=form.remember_me.data)
         log_login(user.id, success=True)
+        if user.must_change_password:
+            flash('Please set a new password before continuing.', 'warning')
+            return redirect(url_for('auth.change_password'))
         flash('Welcome back.', 'success')
         next_url = request.args.get('next') or url_for(user_home_endpoint())
         return redirect(next_url)
@@ -118,14 +121,16 @@ def register():
 @login_required
 @limiter.limit(_auth_rate_limit)
 def change_password():
+    user = db.session.get(User, current_user.id)
+    if not user:
+        abort(404)
+    force_change = bool(user.must_change_password)
     form = ChangePasswordForm()
     if form.validate_on_submit():
-        user = db.session.get(User, current_user.id)
-        if not user:
-            abort(404)
-        if not user.check_password(form.current_password.data):
-            flash('Current password is incorrect.', 'danger')
-            return _change_password_template(form)
+        if not force_change:
+            if not user.check_password(form.current_password.data):
+                flash('Current password is incorrect.', 'danger')
+                return _change_password_template(form, force_change=force_change)
         user.set_password(form.new_password.data)
         user.must_change_password = False
         db.session.commit()
@@ -138,14 +143,15 @@ def change_password():
         )
         flash('Your password has been updated.', 'success')
         return redirect_to_user_home()
-    return _change_password_template(form)
+    return _change_password_template(form, force_change=force_change)
 
 
-def _change_password_template(form):
+def _change_password_template(form, *, force_change: bool = False):
     return render_template(
         'auth/change_password.html',
         form=form,
         password_min_length=current_app.config.get('PASSWORD_MIN_LENGTH', 8),
+        force_change=force_change,
     )
 
 

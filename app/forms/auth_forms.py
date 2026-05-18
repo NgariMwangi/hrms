@@ -56,8 +56,8 @@ class ResetPasswordForm(FlaskForm):
 
 
 class ChangePasswordForm(FlaskForm):
-    """Signed-in user changes password (requires current password)."""
-    current_password = PasswordField('Current password', validators=[DataRequired()])
+    """Signed-in user changes password (current password optional when force_change in route)."""
+    current_password = PasswordField('Current password', validators=[Optional()])
     new_password = PasswordField('New password', validators=[DataRequired()])
     confirm_password = PasswordField(
         'Confirm new password',
@@ -73,5 +73,5 @@ class ChangePasswordForm(FlaskForm):
         min_len = current_app.config.get('PASSWORD_MIN_LENGTH', 8)
         if len(field.data or '') < min_len:
             raise ValidationError(f'Password must be at least {min_len} characters')
-        if field.data == self.current_password.data:
+        if self.current_password.data and field.data == self.current_password.data:
             raise ValidationError('New password must be different from your current password')

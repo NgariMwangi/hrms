@@ -1244,6 +1244,7 @@ def link_user(id):
         flash('This employee already has a linked login account.', 'info')
         return redirect(url_for('employees.view', id=id))
     roles = db.session.query(Role).order_by(Role.name).all()
+    default_role_id = next((r.id for r in roles if r.code == 'EMPLOYEE'), None)
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip().lower()
         password = request.form.get('password') or ''
@@ -1257,7 +1258,14 @@ def link_user(id):
         if db.session.query(User).filter_by(email=email).first():
             flash('A user with this email already exists.', 'danger')
             return render_template('employees/link_user.html', employee=emp, roles=roles)
-        user = User(email=email, employee_id=emp.id, company_id=emp.company_id, is_active=True)
+        must_change = request.form.get('must_change_password', '1') == '1'
+        user = User(
+            email=email,
+            employee_id=emp.id,
+            company_id=emp.company_id,
+            is_active=True,
+            must_change_password=must_change,
+        )
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
@@ -1268,7 +1276,85 @@ def link_user(id):
         db.session.commit()
         flash('Login account created and linked to this employee.', 'success')
         return redirect(url_for('employees.view', id=id))
-    return render_template('employees/link_user.html', employee=emp, roles=roles)
+    return render_template(
+        'employees/link_user.html',
+        employee=emp,
+        roles=roles,
+        default_role_id=default_role_id,
+    )
+
+
+@employees_bp.route('/provision-login-accounts', methods=['GET', 'POST'])
+@login_required
+@permission_required('edit_employees')
+def provision_login_accounts():
+    """Bulk-create login accounts for employees without one (shared initial password)."""
+    from app.services.employee_account_service import (
+        bulk_provision_employee_logins,
+        preview_bulk_provision,
+    )
+    from app.services.audit_service import log_audit
+
+    cid = require_company_id()
+    min_len = current_app.config.get('PASSWORD_MIN_LENGTH', 8)
+    default_password = 'nexgen2026'
+    statuses = ('active',)
+    preview = preview_bulk_provision(cid, statuses=statuses)
+
+    if request.method == 'POST':
+        password = (request.form.get('password') or '').strip()
+        confirm = (request.form.get('confirm_password') or '').strip()
+        if not password or len(password) < min_len:
+            flash(f'Password must be at least {min_len} characters.', 'danger')
+            return render_template(
+                'employees/provision_login_accounts.html',
+                preview=preview,
+                default_password=default_password,
+                min_len=min_len,
+            )
+        if password != confirm:
+            flash('Password and confirmation do not match.', 'danger')
+            return render_template(
+                'employees/provision_login_accounts.html',
+                preview=preview,
+                default_password=default_password,
+                min_len=min_len,
+            )
+        must_change = request.form.get('must_change_password', '1') == '1'
+        result = bulk_provision_employee_logins(
+            cid,
+            password,
+            statuses=statuses,
+            must_change_password=must_change,
+        )
+        if result.created:
+            db.session.commit()
+            log_audit(
+                'CREATE',
+                record_type='User',
+                record_id=None,
+                user_id=current_user.id,
+                description=f'Bulk provisioned {result.created} employee login account(s)',
+                new_values={'created': result.created, 'must_change_password': must_change},
+            )
+        else:
+            db.session.rollback()
+        msg = f'Created {result.created} login account(s).'
+        if result.skipped_has_account:
+            msg += f' Skipped {result.skipped_has_account} already linked.'
+        if result.errors:
+            msg += f' {len(result.errors)} error(s).'
+            for err in result.errors[:5]:
+                flash(err, 'warning')
+        flash(msg, 'success' if result.created else 'info')
+        return redirect(url_for('employees.list'))
+
+    return render_template(
+        'employees/provision_login_accounts.html',
+        preview=preview,
+        default_password=default_password,
+        min_len=min_len,
+    )
 
 
 def _allowed_file(filename):

@@ -16,6 +16,13 @@ STATUTORY_LINES = (
 )
 
 
+def delete_statutory_remitances_for_run(payroll_run_id: int) -> int:
+    """Remove all statutory remittance rows for a payroll run (e.g. on un-approve)."""
+    return db.session.query(PayrollStatutoryRemittance).filter(
+        PayrollStatutoryRemittance.payroll_run_id == payroll_run_id
+    ).delete(synchronize_session=False)
+
+
 def replace_statutory_remitances_for_run(payroll_run_id: int) -> int:
     """
     Delete existing remittance rows for this run and create fresh rows from payroll items.

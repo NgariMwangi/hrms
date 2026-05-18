@@ -15,6 +15,17 @@
         <button type="submit" class="btn btn-success">Approve Payroll</button>
     </form>
     {% endif %}
+    {% if run.status in ('approved', 'finance_reviewed') and has_permission('approve_payroll') %}
+    <form
+        method="post"
+        action="{{ url_for('payroll.unapprove_run', id=run.id) }}"
+        class="d-inline"
+        onsubmit="return confirm('Revert this payroll to draft? Statutory remittance records will be removed and you can recalculate.');"
+    >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-outline-warning">Un-approve (revert to draft)</button>
+    </form>
+    {% endif %}
     {% if run.status == 'draft' and has_permission('process_payroll') %}
     <form method="post" action="{{ url_for('payroll.delete_run', id=run.id) }}" class="d-inline" onsubmit="return confirm('Delete this payroll run? All calculated items will be removed.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

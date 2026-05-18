@@ -34,6 +34,7 @@ from app.services.consultant_payroll_run import (
     save_consultant_exclusions,
 )
 from app.services.statutory_remittance_service import (
+    delete_statutory_remitances_for_run,
     replace_statutory_remitances_for_run,
     institution_totals_for_run,
 )
@@ -913,6 +914,48 @@ def approve_run(id):
     log_update('PayrollRun', run_obj.id, {'status': 'draft'}, {'status': 'approved'}, user_id=current_user.id, description='Payroll approved')
     flash(
         f'Payroll approved. Statutory remittances recorded ({n_lines} line(s)) for institutions (PAYE, NSSF, SHIF, Housing).',
+        'success',
+    )
+    return redirect(url_for('payroll.view_run', id=run_obj.id))
+
+
+@payroll_bp.route('/run/<int:id>/unapprove', methods=['POST'])
+@login_required
+@permission_required('approve_payroll')
+def unapprove_run(id):
+    """Revert an approved (or finance-reviewed) payroll to draft for recalculation."""
+    run_obj = db.session.get(PayrollRun, id)
+    if not run_obj or run_obj.company_id != require_company_id():
+        abort(404)
+    if run_obj.status == 'paid':
+        flash(
+            'This payroll is marked as paid and cannot be un-approved. '
+            'Contact an administrator if a correction is required.',
+            'warning',
+        )
+        return redirect(url_for('payroll.view_run', id=id))
+    if run_obj.status not in ('approved', 'finance_reviewed'):
+        flash('Only approved or finance-reviewed payrolls can be reverted to draft.', 'warning')
+        return redirect(url_for('payroll.view_run', id=id))
+    previous_status = run_obj.status
+    n_removed = delete_statutory_remitances_for_run(run_obj.id)
+    run_obj.status = 'draft'
+    run_obj.approved_by_id = None
+    run_obj.approved_at = None
+    run_obj.finance_reviewed_by_id = None
+    run_obj.finance_reviewed_at = None
+    db.session.commit()
+    log_update(
+        'PayrollRun',
+        run_obj.id,
+        {'status': previous_status},
+        {'status': 'draft'},
+        user_id=current_user.id,
+        description='Payroll un-approved (reverted to draft)',
+    )
+    flash(
+        f'Payroll reverted to draft. Removed {n_removed} statutory remittance line(s). '
+        'You can recalculate and approve again when ready.',
         'success',
     )
     return redirect(url_for('payroll.view_run', id=run_obj.id))

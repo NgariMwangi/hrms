@@ -79,9 +79,9 @@
 <h1 class="h3 mb-2">{% if can_view_all_p9 %}P9 — End of year tax returns{% else %}My P9{% endif %}</h1>
 <p class="text-muted small mb-3">
     {% if can_view_all_p9 %}
-    Preview matches the downloadable PDF. Data comes from <strong>approved</strong> payroll runs for the calendar year.
+    Preview is a summary; the PDF download is a <strong>KRA P9A</strong> tax deduction card generated from <strong>approved</strong> payroll.
     {% else %}
-    Your P9 for the selected year (from <strong>approved</strong> payroll runs). PDF and CSV are for your record only.
+    Your P9 for the selected year (from <strong>approved</strong> payroll). Download PDF for the KRA P9A form; CSV is for iTax.
     {% endif %}
 </p>
 
@@ -120,16 +120,8 @@
     </div>
     {% if selected_year and selected_employee_id %}
     <div class="col-auto">
-        <a class="btn btn-outline-secondary" href="{{ url_for('reports.p9_pdf', year=selected_year, employee_id=selected_employee_id) }}">Download PDF</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('reports.p9_pdf', year=selected_year, employee_id=selected_employee_id) }}">Download P9 (KRA form)</a>
     </div>
-    <div class="col-auto">
-        <a class="btn btn-outline-secondary" href="{{ url_for('reports.p9_csv', year=selected_year, employee_id=selected_employee_id) }}">Download CSV</a>
-    </div>
-    {% if can_view_all_p9 %}
-    <div class="col-auto">
-        <a class="btn btn-outline-secondary" href="{{ url_for('reports.p9_csv', year=selected_year) }}">Download CSV (all employees)</a>
-    </div>
-    {% endif %}
     {% endif %}
 </form>
 

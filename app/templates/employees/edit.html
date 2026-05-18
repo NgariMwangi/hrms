@@ -22,7 +22,18 @@
         <div class="col-md-6"><label class="form-label">Secondary Email</label><input type="email" name="secondary_email" class="form-control" value="{{ form.secondary_email.data or employee.secondary_email or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Phone</label><input type="text" name="phone" class="form-control" value="{{ form.phone.data or employee.phone or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Secondary Phone</label><input type="text" name="secondary_phone" class="form-control" value="{{ form.secondary_phone.data or employee.secondary_phone or employee.phone_alt or '' }}"></div>
-        <div class="col-md-6"><label class="form-label">Photo</label><input type="file" name="photo" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png">{% if employee.photo_url %}<div class="form-text">Current photo is on file. Uploading a new one will replace it.</div>{% endif %}</div>
+        <div class="col-md-6">
+            <label class="form-label">Photo / passport image</label>
+            {% if employee.photo_url %}
+            <div class="mb-2">
+                <a href="{{ url_for('employees.photo', id=employee.id) }}" target="_blank" rel="noopener">
+                    <img src="{{ url_for('employees.photo', id=employee.id) }}" alt="Photo" class="img-thumbnail" style="max-width:200px;max-height:120px;object-fit:contain;">
+                </a>
+            </div>
+            {% endif %}
+            <input type="file" name="photo" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+            <div class="form-text">JPG or PNG profile photo or passport scan. Uploading replaces the current image.</div>
+        </div>
         <div class="col-12"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2">{{ form.address.data or employee.address or '' }}</textarea></div>
         <div class="col-md-4">{{ form.department_id.label(class='form-label') }}{{ form.department_id(class='form-select') }}</div>
         <div class="col-md-4">{{ form.job_title_id.label(class='form-label') }}{{ form.job_title_id(class='form-select') }}</div>

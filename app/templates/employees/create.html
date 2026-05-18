@@ -36,7 +36,7 @@
         <div class="col-md-6"><label class="form-label">Secondary Email</label><input type="email" name="secondary_email" class="form-control" value="{{ form.secondary_email.data or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Phone</label><input type="text" name="phone" class="form-control" value="{{ form.phone.data or '' }}" placeholder="07XX XXX XXX"></div>
         <div class="col-md-6"><label class="form-label">Secondary Phone</label><input type="text" name="secondary_phone" class="form-control" value="{{ form.secondary_phone.data or '' }}" placeholder="07XX XXX XXX"></div>
-        <div class="col-md-6"><label class="form-label">Photo</label><input type="file" name="photo" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png"></div>
+        <div class="col-md-6"><label class="form-label">Photo / passport image</label><input type="file" name="photo" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png"><div class="form-text">Optional JPG or PNG profile photo or passport scan.</div></div>
         <div class="col-12"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2">{{ form.address.data or '' }}</textarea></div>
         <div class="col-md-4">{{ form.department_id.label(class='form-label') }}{{ form.department_id(class='form-select') }}</div>
         <div class="col-md-4">{{ form.job_title_id.label(class='form-label') }}{{ form.job_title_id(class='form-select') }}</div>

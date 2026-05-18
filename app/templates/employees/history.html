@@ -8,7 +8,7 @@
             <strong>{{ employee.employee_number or 'No Number' }}</strong> — {{ employee.full_name }}
         </p>
     </div>
-    <a href="{{ url_for('employees.view', id=employee.id) }}" class="btn btn-outline-secondary shrink-0">
+    <a href="{{ url_for('employees.profile') if current_user.employee_id == employee.id else url_for('employees.view', id=employee.id) }}" class="btn btn-outline-secondary shrink-0">
         <i class="bi bi-arrow-left me-1"></i>Back to profile
     </a>
 </div>

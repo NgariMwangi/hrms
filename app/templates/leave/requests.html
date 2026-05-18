@@ -1,5 +1,37 @@
 {% extends "layouts/base.html" %}
 {% block title %}Leave - {{ app_name }}{% endblock %}
+
+{% macro leave_status_badge(r) %}
+<span class="badge bg-{{ 'warning' if r.status == 'pending' else 'success' if r.status == 'approved' else 'danger' }}">{{ r.status }}</span>
+{% endmacro %}
+
+{% macro leave_remaining_cell(r) %}
+{% if r.status == 'approved' and remaining_days.get(r.id) is not none %}
+    {% set rem = remaining_days[r.id] %}
+    {% if rem == 0 %}
+        <span class="text-muted">0</span>
+    {% else %}
+        <span class="fw-semibold">{{ rem | fmt_days }}</span>
+    {% endif %}
+{% else %}
+    <span class="text-muted">—</span>
+{% endif %}
+{% endmacro %}
+
+{% macro leave_request_actions(r) %}
+{% set can_modify = has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id) %}
+{% if can_modify %}
+<a href="{{ url_for('leave.edit_request', id=r.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+<form method="post" action="{{ url_for('leave.delete_request', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave request?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+</form>
+{% endif %}
+{% if r.status == 'pending' and has_permission('approve_leave') %}
+<a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Approve/Reject</a>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h1 class="h3 mb-0">Leave Requests</h1>
@@ -69,51 +101,82 @@
 </div>
 {% endif %}
 
+{% set show_employee_column = has_permission('approve_leave') %}
 <a href="{{ url_for('leave.request_leave') }}" class="btn btn-primary mb-3">New Request</a>
-<div class="table-responsive">
-    <table class="table">
-        <thead><tr><th>Employee</th><th>Type</th><th>Handover to</th><th>Start</th><th>End</th><th class="text-center">Days</th><th class="text-center">Remaining</th><th>Status</th><th></th></tr></thead>
+<div class="d-none d-md-block table-responsive leave-requests-table-wrap">
+    <table class="table leave-requests-table mb-0">
+        <thead>
+            <tr>
+                {% if show_employee_column %}<th>Employee</th>{% endif %}
+                <th>Type</th>
+                <th>Handover to</th>
+                <th>Start</th>
+                <th>End</th>
+                <th class="text-center">Days</th>
+                <th class="text-center">Remaining</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
         <tbody>
         {% for r in requests %}
         <tr>
+            {% if show_employee_column %}
             <td>{{ r.employee.full_name if r.employee else '-' }}</td>
+            {% endif %}
             <td>{{ r.leave_type.name if r.leave_type else '-' }}</td>
             <td>{{ r.handover_to.full_name if r.handover_to else '-' }}</td>
             <td>{{ r.start_date.strftime('%d %b %Y') if r.start_date else '-' }}</td>
             <td>{{ r.end_date.strftime('%d %b %Y') if r.end_date else '-' }}</td>
             <td class="text-center">{{ r.days_requested | fmt_days }}</td>
-            <td class="text-center align-middle">
-                {% if r.status == 'approved' and remaining_days.get(r.id) is not none %}
-                    {% set rem = remaining_days[r.id] %}
-                    {% if rem == 0 %}
-                        <span class="text-muted">0</span>
-                    {% else %}
-                        <span class="fw-semibold">{{ rem | fmt_days }}</span>
-                    {% endif %}
-                {% else %}
-                    <span class="text-muted">—</span>
-                {% endif %}
-            </td>
-            <td><span class="badge bg-{{ 'warning' if r.status == 'pending' else 'success' if r.status == 'approved' else 'danger' }}">{{ r.status }}</span></td>
-            <td class="text-nowrap">
-                {% set can_modify = has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id) %}
-                {% if can_modify %}
-                <a href="{{ url_for('leave.edit_request', id=r.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-                <form method="post" action="{{ url_for('leave.delete_request', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave request?');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                </form>
-                {% endif %}
-                {% if r.status == 'pending' and has_permission('approve_leave') %}
-                <a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Approve/Reject</a>
-                {% endif %}
-            </td>
+            <td class="text-center align-middle">{{ leave_remaining_cell(r) }}</td>
+            <td>{{ leave_status_badge(r) }}</td>
+            <td class="text-nowrap">{{ leave_request_actions(r) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="text-muted">No leave requests.</td></tr>
+        <tr><td colspan="{{ 9 if show_employee_column else 8 }}" class="text-muted">No leave requests.</td></tr>
         {% endfor %}
         </tbody>
     </table>
+</div>
+
+<div class="d-md-none leave-request-cards">
+    {% for r in requests %}
+    <div class="card border-0 shadow-sm mb-3 leave-request-card">
+        <div class="card-body p-3">
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                <div class="min-w-0">
+                    <div class="fw-semibold">{{ r.leave_type.name if r.leave_type else 'Leave' }}</div>
+                    {% if show_employee_column %}
+                    <div class="small text-muted text-truncate">{{ r.employee.full_name if r.employee else '—' }}</div>
+                    {% endif %}
+                </div>
+                {{ leave_status_badge(r) }}
+            </div>
+            <dl class="leave-request-card-details mb-3">
+                <dt>Period</dt>
+                <dd>
+                    {{ r.start_date.strftime('%d %b %Y') if r.start_date else '—' }}
+                    –
+                    {{ r.end_date.strftime('%d %b %Y') if r.end_date else '—' }}
+                </dd>
+                <dt>Days</dt>
+                <dd>{{ r.days_requested | fmt_days }}</dd>
+                <dt>Remaining</dt>
+                <dd>{{ leave_remaining_cell(r) }}</dd>
+                {% if r.handover_to %}
+                <dt>Handover</dt>
+                <dd>{{ r.handover_to.full_name }}</dd>
+                {% endif %}
+            </dl>
+            <div class="leave-request-card-actions d-flex flex-wrap gap-2">
+                {{ leave_request_actions(r) }}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">No leave requests.</p>
+    {% endfor %}
 </div>
 <p class="text-muted small mb-0">
     <strong>Remaining</strong> is for <strong>approved</strong> leave only: days still to run in the period (from today through the end date), using the same rule as the leave type — <em>working days</em> (Mon–Fri) or <em>calendar days</em>. Before the start date, it shows the full period length. After the end date, it shows 0.

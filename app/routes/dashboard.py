@@ -10,6 +10,7 @@ from app.models.leave import LeaveRequest
 from app.models.overtime import OvertimeRequest
 from app.models.payroll import PayrollRun, PayrollItem
 from app.utils.tenant import require_company_id
+from app.utils.navigation import is_employee_self_service_user, redirect_to_user_home
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
@@ -18,6 +19,8 @@ dashboard_bp = Blueprint('dashboard', __name__)
 @login_required
 def index():
     """Main dashboard - show widgets based on role."""
+    if is_employee_self_service_user():
+        return redirect_to_user_home()
     today = date.today()
     if current_user.company_id is None:
         if current_user.is_superuser:

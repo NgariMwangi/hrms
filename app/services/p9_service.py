@@ -27,6 +27,14 @@ def _quantize(v) -> Decimal:
     return Decimal(str(v or 0)).quantize(Decimal('0.01'))
 
 
+def _basic_from_item(item: PayrollItem) -> Decimal:
+    """Basic salary component from payslip earnings_breakdown."""
+    for row in item.earnings_breakdown or []:
+        if str(row.get('code', '')).upper() == 'BASIC':
+            return _quantize(row.get('amount', 0))
+    return Decimal('0')
+
+
 def _benefits_from_item(item: PayrollItem) -> Decimal:
     """
     Non-basic cash components of gross (allowances + other earnings in payslip breakdown).
@@ -258,6 +266,87 @@ def monthly_p9_rows(calendar_year: int, employee_id: int, company_id: int) -> li
     return rows
 
 
+def monthly_p9a_rows(calendar_year: int, employee_id: int, company_id: int) -> list:
+    """
+    KRA P9A monthly grid from approved payroll (one row per month with payroll data).
+    Column keys match the official form: a..o.
+    """
+    items = (
+        db.session.query(PayrollItem)
+        .join(PayrollRun, PayrollItem.payroll_run_id == PayrollRun.id)
+        .filter(
+            PayrollRun.status == 'approved',
+            PayrollRun.pay_year == calendar_year,
+            PayrollRun.company_id == company_id,
+            PayrollItem.employee_id == employee_id,
+        )
+        .options(
+            joinedload(PayrollItem.payroll_run),
+            joinedload(PayrollItem.employee).joinedload(Employee.branch),
+        )
+        .all()
+    )
+    by_month: dict[int, list] = defaultdict(list)
+    for item in items:
+        run = item.payroll_run
+        if not run:
+            continue
+        m = int(run.pay_month)
+        if 1 <= m <= 12:
+            by_month[m].append(item)
+
+    rows = []
+    for m in range(1, 13):
+        batch = by_month.get(m, [])
+        if not batch:
+            continue
+        pd = date(calendar_year, m, 1)
+        sc, scc = _statutory_company_and_country(batch[0])
+        basic = sum(_basic_from_item(i) for i in batch)
+        benefits = sum(_benefits_from_item(i) for i in batch)
+        gross = sum(_quantize(i.gross_pay) for i in batch)
+        nssf = sum(_quantize(i.nssf_employee) for i in batch)
+        housing = sum(_quantize(i.housing_levy) for i in batch)
+        shif = sum(_quantize(i.shif) for i in batch)
+        taxable = sum(_quantize(i.taxable_pay) for i in batch)
+        paye = sum(_quantize(i.paye) for i in batch)
+        br = calculate_paye_breakdown(taxable, pd, sc, scc)
+        rows.append(
+            {
+                'month': m,
+                'a_basic': basic,
+                'b_benefits': benefits,
+                'c_quarters': Decimal('0'),
+                'd_gross': gross,
+                'e_pension': nssf,
+                'f_ahl': housing,
+                'g_shif': shif,
+                'h_prmf': Decimal('0'),
+                'i_owner_interest': Decimal('0'),
+                'j_other': Decimal('0'),
+                'k_chargeable': taxable,
+                'l_tax_charged': br['tax_before_relief'],
+                'm_personal_relief': br['personal_relief_applied'],
+                'n_insurance_relief': Decimal('0'),
+                'o_paye': paye,
+            }
+        )
+    return rows
+
+
+def p9a_column_totals(monthly_rows: list) -> dict:
+    """Sum each P9A column across months (for TOTAL row and footer)."""
+    keys = (
+        'a_basic', 'b_benefits', 'c_quarters', 'd_gross', 'e_pension', 'f_ahl', 'g_shif',
+        'h_prmf', 'i_owner_interest', 'j_other', 'k_chargeable', 'l_tax_charged',
+        'm_personal_relief', 'n_insurance_relief', 'o_paye',
+    )
+    out = {}
+    for k in keys:
+        out[k] = sum((r[k] for r in monthly_rows), start=Decimal('0')).quantize(Decimal('0.01'))
+    return out
+
+
 def monthly_p9_totals(monthly_rows: list) -> dict:
     keys = ['taxable_pay', 'pension', 'paye_auto', 'unused_mpr', 'mpr_value', 'arrears', 'paye_manual']
     out = {}
@@ -278,6 +367,8 @@ def row_for_employee(calendar_year: int, employee_id: int, company_id: int) -> O
     total_paye = data['paye']
     monthly_rows = monthly_p9_rows(calendar_year, employee_id, company_id)
     monthly_totals = monthly_p9_totals(monthly_rows)
+    p9a_rows = monthly_p9a_rows(calendar_year, employee_id, company_id)
+    p9a_totals = p9a_column_totals(p9a_rows)
     return {
         'employee': emp,
         'employee_id': employee_id,
@@ -295,4 +386,6 @@ def row_for_employee(calendar_year: int, employee_id: int, company_id: int) -> O
         'housing_levy': data['housing_levy'],
         'monthly_rows': monthly_rows,
         'monthly_totals': monthly_totals,
+        'p9a_rows': p9a_rows,
+        'p9a_totals': p9a_totals,
     }

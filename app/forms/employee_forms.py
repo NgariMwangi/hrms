@@ -119,6 +119,38 @@ class EmployeeForm(FlaskForm):
                 raise ValidationError('Contract end date cannot be before contract start date.')
 
 
+class EmployeeSelfContactForm(FlaskForm):
+    """Contact fields employees may update on their own profile."""
+    login_email = StringField('Sign-in email', validators=[DataRequired(), Email()])
+    email = StringField('Work email', validators=[Optional(), Email()])
+    secondary_email = StringField('Secondary email', validators=[Optional(), Email()])
+    phone = StringField('Phone', validators=[Optional(), _validate_phone])
+    secondary_phone = StringField('Secondary phone', validators=[Optional(), _validate_phone])
+    address = TextAreaField('Physical address', validators=[Optional()])
+    postal_address = StringField('Postal address', validators=[Optional()])
+    emergency_contact_name = StringField('Emergency contact name', validators=[Optional()])
+    emergency_contact_phone = StringField('Emergency contact phone', validators=[Optional(), _validate_phone])
+    submit = SubmitField('Save contact details')
+
+    def __init__(self, *args, user_id=None, **kwargs):
+        self._user_id = user_id
+        super().__init__(*args, **kwargs)
+
+    def validate_login_email(self, field):
+        from app.extensions import db
+        from app.models.user import User
+
+        email = (field.data or '').strip().lower()
+        if not email:
+            raise ValidationError('Sign-in email is required.')
+        field.data = email
+        q = db.session.query(User).filter(User.email == email)
+        if self._user_id:
+            q = q.filter(User.id != self._user_id)
+        if q.first():
+            raise ValidationError('Another account already uses this email.')
+
+
 class EmployeeSalaryForm(FlaskForm):
     """Employee basic salary record. Allowances are added separately via Allowance table."""
     basic_salary = FloatField('Basic Salary', validators=[DataRequired()])

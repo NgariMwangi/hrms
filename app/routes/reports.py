@@ -20,6 +20,7 @@ from app.models.employer import Employer
 from app.models.leave import LeaveRequest
 from app.models.overtime import OvertimeRequest
 from app.services.p9_service import MONTH_NAMES, row_for_employee, rows_for_csv
+from app.services.p9_template_service import build_p9a_overlay_context, fill_p9a_template_pdf
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -945,6 +946,7 @@ def p9_report():
 @reports_bp.route('/p9/pdf')
 @login_required
 def p9_pdf():
+    """Download KRA P9A tax deduction card PDF filled from approved payroll."""
     year = request.args.get('year', type=int)
     employee_id = request.args.get('employee_id', type=int)
     if not year or not employee_id:
@@ -956,138 +958,19 @@ def p9_pdf():
         abort(404)
     emp = data['employee']
     employer_name, employer_pin = _get_employer_name_pin(cid, default_name='Employer', default_pin='—')
-
-    emp_name = emp.full_name if emp else f'Employee #{employee_id}'
-    emp_pin = (emp.kra_pin or '—').strip() if emp else '—'
-    emp_no = emp.employee_number if emp else '—'
-    id_no = (emp.national_id or '—').strip() if emp else '—'
-
-    monthly_rows = data['monthly_rows']
-    monthly_totals = data['monthly_totals']
-
-    def _kes(v) -> str:
-        try:
-            return f"{float(v):,.2f}"
-        except (TypeError, ValueError):
-            return '0.00'
-
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(A4),
-        leftMargin=PDF_MARGIN,
-        rightMargin=PDF_MARGIN,
-        topMargin=14,
-        bottomMargin=18,
+    ctx = build_p9a_overlay_context(
+        calendar_year=year,
+        employer_name=employer_name,
+        employer_pin=employer_pin,
+        employee=emp,
+        p9a_rows=data.get('p9a_rows') or [],
+        p9a_totals=data.get('p9a_totals') or {},
     )
-    styles = getSampleStyleSheet()
-    header_data = [
-        ['Employer', _xml_escape(employer_name), 'Tax year', _xml_escape(str(year))],
-        ['Employer Tax-PIN', _xml_escape(employer_pin), "Tax payer's name", _xml_escape(emp_name)],
-        ['Employee no.', _xml_escape(str(emp_no)), 'ID no.', _xml_escape(str(id_no))],
-        ['PIN', _xml_escape(emp_pin), '', ''],
-    ]
-    hw = doc.width
-    header_tbl = Table(
-        header_data,
-        colWidths=[hw * 0.16, hw * 0.34, hw * 0.16, hw * 0.34],
-        hAlign='LEFT',
-    )
-    header_tbl.setStyle(
-        TableStyle(
-            [
-                ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f1f5f9')),
-                ('BACKGROUND', (2, 0), (2, 2), colors.HexColor('#f1f5f9')),
-                ('BACKGROUND', (0, 3), (0, 3), colors.HexColor('#f1f5f9')),
-                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-                ('FONTNAME', (2, 0), (2, 2), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 6),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-                ('TOPPADDING', (0, 0), (-1, -1), 5),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-                ('SPAN', (1, 3), (3, 3)),
-            ]
-        )
-    )
-    story = [
-        Paragraph(
-            '<b>P9 — End of Year Tax Returns</b>',
-            styles['Title'],
-        ),
-        Spacer(1, 6),
-        header_tbl,
-        Spacer(1, 10),
-    ]
-
-    hdr = [
-        'Pay date',
-        'Taxable pay (KES)',
-        'Pension (KES)',
-        'PAYE auto (KES)',
-        'Unused MPR (KES)',
-        'MPR value (KES)',
-        'Arrears (KES)',
-        'PAYE manual (KES)',
-    ]
-    table_data = [hdr]
-    for r in monthly_rows:
-        table_data.append(
-            [
-                r['pay_date'],
-                _kes(r['taxable_pay']),
-                _kes(r['pension']),
-                _kes(r['paye_auto']),
-                _kes(r['unused_mpr']),
-                _kes(r['mpr_value']),
-                _kes(r['arrears']),
-                _kes(r['paye_manual']),
-            ]
-        )
-    table_data.append(
-        [
-            'Totals',
-            _kes(monthly_totals['taxable_pay']),
-            _kes(monthly_totals['pension']),
-            _kes(monthly_totals['paye_auto']),
-            _kes(monthly_totals['unused_mpr']),
-            _kes(monthly_totals['mpr_value']),
-            _kes(monthly_totals['arrears']),
-            _kes(monthly_totals['paye_manual']),
-        ]
-    )
-
-    col_fracs = [0.11, 0.13, 0.11, 0.13, 0.13, 0.13, 0.13, 0.13]
-    col_widths = [doc.width * f for f in col_fracs]
-    p9_table = Table(table_data, repeatRows=1, colWidths=col_widths, hAlign='LEFT')
-    p9_table.setStyle(
-        TableStyle(
-            [
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#cfe2ff')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
-                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e9ecef')),
-            ]
-        )
-    )
-    story.append(p9_table)
-    story.append(Spacer(1, 10))
-    story.append(
-        Paragraph(
-            f'<i>Printed at {_xml_escape(datetime.now().strftime("%d/%m/%Y, %H:%M:%S"))}</i>',
-            styles['Normal'],
-        )
-    )
-    doc.build(story)
+    pdf_bytes = fill_p9a_template_pdf(ctx)
+    buffer = BytesIO(pdf_bytes)
     buffer.seek(0)
-    filename = f"p9-paye-{year}-emp-{employee_id}.pdf"
+    safe_name = (emp.last_name or 'employee').replace(' ', '-')
+    filename = f"P9A-{year}-{safe_name}.pdf"
     return send_file(buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
 

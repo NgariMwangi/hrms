@@ -17,7 +17,7 @@ from app.models.payroll import EmployeeSalary, EmployeeAllowance, Allowance, Emp
 from app.models.user import User, Role, UserRole
 from app.models.document import EmployeeDocument, DocumentCategory
 from app.models.benefit import EmployeeBenefit
-from app.forms.employee_forms import EmployeeForm, EmployeeSalaryForm
+from app.forms.employee_forms import EmployeeForm, EmployeeSalaryForm, EmployeeSelfContactForm
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
 from app.utils.currency import currency_for_branch
@@ -55,6 +55,29 @@ def _clean_employee_number(raw_value: str | None):
         return None
     value = raw_value.strip()
     return value or None
+
+
+def _employee_with_relations(employee_id: int) -> Employee | None:
+    """Load employee with org relationships for profile/detail views."""
+    return (
+        db.session.query(Employee)
+        .options(
+            joinedload(Employee.branch),
+            joinedload(Employee.department),
+            joinedload(Employee.job_title),
+            joinedload(Employee.manager),
+        )
+        .filter(Employee.id == employee_id)
+        .first()
+    )
+
+
+def _can_view_employee(emp: Employee) -> bool:
+    if emp.company_id != require_company_id():
+        return False
+    if (current_user.employee_id or 0) == emp.id:
+        return True
+    return current_user.has_permission('view_employees')
 
 
 @employees_bp.route('/')
@@ -518,17 +541,100 @@ def history(id):
     )
 
 
+def _save_employee_self_contact(emp: Employee, user: User, form: EmployeeSelfContactForm) -> bool:
+    """Apply validated self-service contact form to employee and user login email."""
+    old = model_to_audit_dict(emp)
+    user.email = (form.login_email.data or '').strip().lower()
+    emp.email = (form.email.data or '').strip() or None
+    emp.secondary_email = (form.secondary_email.data or '').strip() or None
+    phone = normalize_phone_ke(form.phone.data) if form.phone.data else None
+    secondary_phone = normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None
+    emp.phone = phone
+    emp.secondary_phone = secondary_phone
+    emp.phone_alt = secondary_phone
+    emp.address = (form.address.data or '').strip() or None
+    emp.postal_address = (form.postal_address.data or '').strip() or None
+    emp.emergency_contact_name = (form.emergency_contact_name.data or '').strip() or None
+    emp.emergency_contact_phone = (
+        normalize_phone_ke(form.emergency_contact_phone.data)
+        if form.emergency_contact_phone.data
+        else None
+    )
+    try:
+        db.session.commit()
+        log_update(
+            'Employee',
+            emp.id,
+            old,
+            model_to_audit_dict(emp),
+            user_id=current_user.id,
+            description='Employee updated own contact details',
+        )
+        flash('Contact details and sign-in email saved.', 'success')
+        return True
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception('Profile contact update failed')
+        flash(f'Could not save contact details: {exc}', 'danger')
+        return False
+
+
+@employees_bp.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    """Self-service profile for the logged-in user's linked employee record."""
+    if not current_user.employee_id:
+        flash('Your account is not linked to an employee record. Contact HR.', 'warning')
+        from app.utils.navigation import redirect_to_user_home
+        return redirect_to_user_home()
+    emp = _employee_with_relations(current_user.employee_id)
+    if not emp or not _can_view_employee(emp):
+        abort(404)
+
+    user = db.session.get(User, current_user.id)
+    contact_form = EmployeeSelfContactForm(obj=emp, user_id=current_user.id)
+    contact_form.login_email.data = (user.email if user else current_user.email) or ''
+    open_contact_modal = False
+    if request.method == 'POST' and request.form.get('form_name') == 'contact':
+        contact_form = EmployeeSelfContactForm(user_id=current_user.id)
+        if contact_form.validate_on_submit():
+            if user and _save_employee_self_contact(emp, user, contact_form):
+                return redirect(url_for('employees.profile', _anchor='contact'))
+        open_contact_modal = True
+        if contact_form.errors:
+            for field, errors in contact_form.errors.items():
+                for err in errors:
+                    label = getattr(contact_form, field).label.text if hasattr(contact_form, field) else field
+                    flash(f'{label}: {err}', 'danger')
+
+    return render_template(
+        'employees/profile.html',
+        employee=emp,
+        contact_form=contact_form,
+        open_contact_modal=open_contact_modal,
+    )
+
+
+@employees_bp.route('/profile/photo', methods=['POST'])
+@login_required
+def profile_photo_upload():
+    """Upload or replace profile/passport photo on own profile (stored in photo_url)."""
+    if not current_user.employee_id:
+        abort(403)
+    emp = db.session.get(Employee, current_user.employee_id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    return _handle_employee_photo_upload(emp, redirect_url=url_for('employees.profile'))
+
+
 @employees_bp.route('/<int:id>')
 @login_required
 def view(id):
-    emp = db.session.get(Employee, id)
-    if not emp or emp.company_id != require_company_id():
-        from flask import abort
+    if (current_user.employee_id or 0) == id and not current_user.has_permission('view_employees'):
+        return redirect(url_for('employees.profile'))
+    emp = _employee_with_relations(id)
+    if not emp or not _can_view_employee(emp):
         abort(404)
-    # Employees can view own profile; others need permission
-    if (current_user.employee_id or 0) != emp.id and not current_user.has_permission('view_employees'):
-        from flask import abort
-        abort(403)
     return render_template('employees/view.html', employee=emp)
 
 
@@ -539,35 +645,9 @@ def photo(id):
     emp = db.session.get(Employee, id)
     if not emp or emp.company_id != require_company_id():
         abort(404)
-    if (current_user.employee_id or 0) != emp.id and not current_user.has_permission('view_employees'):
+    if not _can_view_employee(emp):
         abort(403)
-    rel_path = (emp.photo_url or '').replace('\\', '/').lstrip('/').strip()
-    if not rel_path:
-        abort(404)
-    if rel_path.startswith('cld::'):
-        parts = rel_path.split('::', 2)
-        if len(parts) != 3 or not cloudinary_url:
-            abort(404)
-        _prefix, resource_type, public_id = parts
-        file_url, _ = cloudinary_url(
-            public_id,
-            resource_type=resource_type or 'image',
-            secure=True,
-        )
-        return redirect(file_url)
-    upload_root = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
-    full_path = os.path.abspath(os.path.join(upload_root, rel_path))
-    if not full_path.startswith(upload_root + os.sep):
-        abort(403)
-    if not os.path.exists(full_path) or not os.path.isfile(full_path):
-        abort(404)
-    mime, _ = mimetypes.guess_type(full_path)
-    return send_file(
-        full_path,
-        mimetype=mime or 'application/octet-stream',
-        as_attachment=False,
-        download_name=os.path.basename(full_path),
-    )
+    return _serve_employee_stored_image(emp.photo_url)
 
 
 @employees_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
@@ -1201,15 +1281,73 @@ def _allowed_image_file(filename):
     return ext in {'jpg', 'jpeg', 'png'}
 
 
-def _cloudinary_upload_employee_photo(file_storage, employee_id: int) -> str:
-    """Upload employee photo to Cloudinary and return cld reference."""
+def _serve_employee_stored_image(rel_path: str | None):
+    """Stream or redirect to a stored employee image (photo, passport scan, etc.)."""
+    ref = (rel_path or '').replace('\\', '/').lstrip('/').strip()
+    if not ref:
+        abort(404)
+    if ref.startswith('cld::'):
+        parts = ref.split('::', 2)
+        if len(parts) != 3 or not cloudinary_url:
+            abort(404)
+        _prefix, resource_type, public_id = parts
+        file_url, _ = cloudinary_url(
+            public_id,
+            resource_type=resource_type or 'image',
+            secure=True,
+        )
+        return redirect(file_url)
+    upload_root = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
+    full_path = os.path.abspath(os.path.join(upload_root, ref))
+    if not full_path.startswith(upload_root + os.sep):
+        abort(403)
+    if not os.path.exists(full_path) or not os.path.isfile(full_path):
+        abort(404)
+    mime, _ = mimetypes.guess_type(full_path)
+    return send_file(
+        full_path,
+        mimetype=mime or 'application/octet-stream',
+        as_attachment=False,
+        download_name=os.path.basename(full_path),
+    )
+
+
+def _handle_employee_photo_upload(emp: Employee, redirect_url: str):
+    """Save uploaded image to employee.photo_url (profile photo or passport scan)."""
+    photo_file = request.files.get('photo')
+    if not photo_file or not photo_file.filename:
+        flash('Please choose an image (JPG or PNG).', 'danger')
+        return redirect(redirect_url)
+    try:
+        emp.photo_url = _save_employee_photo(photo_file, emp.id, old_photo_path=emp.photo_url)
+        db.session.commit()
+        flash('Photo saved.', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'danger')
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception('Employee photo upload failed')
+        flash(f'Could not save photo: {exc}', 'danger')
+    return redirect(redirect_url)
+
+
+def _cloudinary_upload_employee_image(
+    file_storage,
+    employee_id: int,
+    *,
+    folder_config_key: str,
+    default_folder: str,
+    public_id_prefix: str,
+) -> str:
+    """Upload employee image to Cloudinary and return cld reference."""
     _configure_cloudinary()
-    original = secure_filename(file_storage.filename or 'photo')
+    original = secure_filename(file_storage.filename or 'image')
     upload_res = cloudinary.uploader.upload(
         file_storage,
         resource_type='image',
-        folder=current_app.config.get('CLOUDINARY_PHOTOS_FOLDER', 'hrms/employee_photos'),
-        public_id=f"employee_{employee_id}_{os.urandom(4).hex()}_{os.path.splitext(original)[0]}",
+        folder=current_app.config.get(folder_config_key, default_folder),
+        public_id=f"{public_id_prefix}_{employee_id}_{os.urandom(4).hex()}_{os.path.splitext(original)[0]}",
         overwrite=False,
         use_filename=False,
     )
@@ -1219,8 +1357,18 @@ def _cloudinary_upload_employee_photo(file_storage, employee_id: int) -> str:
     return f"cld::image::{public_id}"
 
 
-def _delete_employee_photo(stored_path: str | None):
-    """Delete old employee photo from Cloudinary or local storage."""
+def _cloudinary_upload_employee_photo(file_storage, employee_id: int) -> str:
+    return _cloudinary_upload_employee_image(
+        file_storage,
+        employee_id,
+        folder_config_key='CLOUDINARY_PHOTOS_FOLDER',
+        default_folder='hrms/employee_photos',
+        public_id_prefix='employee',
+    )
+
+
+def _delete_employee_stored_image(stored_path: str | None):
+    """Delete stored employee image from Cloudinary or local storage."""
     if not stored_path:
         return
     ref = stored_path.replace('\\', '/').lstrip('/').strip()
@@ -1234,7 +1382,7 @@ def _delete_employee_photo(stored_path: str | None):
                 _configure_cloudinary()
                 cloudinary.uploader.destroy(public_id, resource_type=resource_type or 'image', invalidate=True)
             except Exception:
-                current_app.logger.warning('Could not delete old cloud employee photo: %s', public_id)
+                current_app.logger.warning('Could not delete old cloud employee image: %s', public_id)
         return
     upload_root = os.path.abspath(current_app.config['UPLOAD_FOLDER'])
     old_full = os.path.abspath(os.path.join(upload_root, ref))
@@ -1242,38 +1390,61 @@ def _delete_employee_photo(stored_path: str | None):
         try:
             os.remove(old_full)
         except OSError:
-            current_app.logger.warning('Could not delete old employee photo: %s', old_full)
+            current_app.logger.warning('Could not delete old employee image: %s', old_full)
 
 
-def _save_employee_photo(file_storage, employee_id: int, old_photo_path: str | None = None) -> str:
-    """Store employee photo and return Cloudinary ref or relative local path."""
+def _delete_employee_photo(stored_path: str | None):
+    _delete_employee_stored_image(stored_path)
+
+
+def _save_employee_image(
+    file_storage,
+    employee_id: int,
+    *,
+    local_subdir: str,
+    cloud_upload_fn,
+    old_image_path: str | None = None,
+    invalid_type_message: str = 'Image type not allowed. Use JPG or PNG.',
+) -> str:
+    """Store employee image and return Cloudinary ref or relative local path."""
     if not file_storage or not file_storage.filename:
-        return old_photo_path or ''
+        return old_image_path or ''
     if not _allowed_image_file(file_storage.filename):
-        raise ValueError('Photo type not allowed. Use JPG or PNG.')
+        raise ValueError(invalid_type_message)
     stored_path = ''
     if _cloudinary_enabled():
         try:
-            stored_path = _cloudinary_upload_employee_photo(file_storage, employee_id)
+            stored_path = cloud_upload_fn(file_storage, employee_id)
         except Exception:
-            current_app.logger.exception('Cloudinary photo upload failed; falling back to local storage.')
+            current_app.logger.exception('Cloudinary image upload failed; falling back to local storage.')
             try:
                 file_storage.stream.seek(0)
             except Exception:
                 pass
     if not stored_path:
-        upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'employee_photos', str(employee_id))
+        upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], local_subdir, str(employee_id))
         os.makedirs(upload_dir, exist_ok=True)
         filename = secure_filename(file_storage.filename)
         base, ext = os.path.splitext(filename)
         unique = f"{base}_{os.urandom(4).hex()}{ext.lower()}"
-        stored_path = os.path.join('employee_photos', str(employee_id), unique).replace('\\', '/')
+        stored_path = os.path.join(local_subdir, str(employee_id), unique).replace('\\', '/')
         full_path = os.path.join(current_app.config['UPLOAD_FOLDER'], stored_path)
         file_storage.save(full_path)
 
-    if old_photo_path and old_photo_path != stored_path:
-        _delete_employee_photo(old_photo_path)
+    if old_image_path and old_image_path != stored_path:
+        _delete_employee_stored_image(old_image_path)
     return stored_path
+
+
+def _save_employee_photo(file_storage, employee_id: int, old_photo_path: str | None = None) -> str:
+    return _save_employee_image(
+        file_storage,
+        employee_id,
+        local_subdir='employee_photos',
+        cloud_upload_fn=_cloudinary_upload_employee_photo,
+        old_image_path=old_photo_path,
+        invalid_type_message='Photo type not allowed. Use JPG or PNG.',
+    )
 
 
 def _can_access_employee_documents(employee_id: int) -> bool:

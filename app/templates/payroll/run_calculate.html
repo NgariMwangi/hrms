@@ -46,7 +46,7 @@
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead>
-                    <tr><th style="width: 56px;">Exclude</th><th>Employee</th><th>Status</th><th>Recalculate</th></tr>
+                    <tr><th style="width: 56px;">Exclude</th><th>Employee</th><th>Status</th><th class="text-end">Gross (saved)</th><th>Recalculate</th></tr>
                 </thead>
                 <tbody>
                 {% for e in employees %}
@@ -72,6 +72,13 @@
                                 <span class="badge text-bg-secondary">Missing salary</span>
                             {% endif %}
                         </td>
+                        <td class="text-end text-muted small">
+                            {% if e.id in payroll_gross_by_employee %}
+                            {{ "{:,.2f}".format(payroll_gross_by_employee[e.id]|float) }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
                         <td>
                             {% if has_salary and (e.id not in excluded_employee_ids) %}
                             <form method="post" action="{{ url_for('payroll.run_calculate', id=run.id) }}" class="d-inline">
@@ -88,7 +95,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="4" class="text-muted">
+                            <td colspan="5" class="text-muted">
                             {% if q %}No employees match your search.{% else %}No active employees in this country.{% endif %}
                         </td>
                     </tr>

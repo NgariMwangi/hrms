@@ -134,8 +134,8 @@ def create_app(config_object=None):
     # Root URL rule
     @app.route('/')
     def index():
-        from flask import redirect, url_for
-        return redirect(url_for('dashboard.index'))
+        from app.utils.navigation import redirect_to_user_home
+        return redirect_to_user_home()
 
     return app
 

@@ -33,13 +33,25 @@ def register_template_filters(app):
 
 def inject_permissions():
     """Expose current_user and has_permission to templates."""
+    from app.utils.navigation import is_employee_self_service_user, user_home_endpoint
+
     def has_permission(code):
         if not current_user.is_authenticated:
             return False
         return current_user.has_permission(code)
+
+    if current_user.is_authenticated:
+        ess = is_employee_self_service_user()
+        home_ep = user_home_endpoint()
+    else:
+        ess = False
+        home_ep = 'auth.login'
+
     return {
         'current_user': current_user,
         'has_permission': has_permission,
+        'is_employee_self_service': ess,
+        'home_endpoint': home_ep,
     }
 
 

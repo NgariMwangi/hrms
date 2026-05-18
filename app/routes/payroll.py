@@ -1,6 +1,9 @@
 """Payroll processing and history."""
 from decimal import Decimal
-from flask import Blueprint, abort, render_template, redirect, url_for, flash, request, current_app
+import re
+from io import BytesIO
+
+from flask import Blueprint, abort, render_template, redirect, url_for, flash, request, current_app, send_file
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models.payroll import (
@@ -43,6 +46,31 @@ _EMPLOYEE_PAYSLIP_RUN_STATUSES = ('approved', 'finance_reviewed', 'paid')
 
 def _cc(raw) -> str:
     return (raw or 'KE').strip().upper()[:2]
+
+
+def _approved_overtime_for_employee(
+    company_id: int,
+    employee_id: int,
+    pay_month: int,
+    pay_year: int,
+    payroll_run_id: int,
+):
+    """Approved OT for this pay month, not applied elsewhere or already on this draft run."""
+    return (
+        db.session.query(OvertimeRequest)
+        .filter(
+            OvertimeRequest.company_id == company_id,
+            OvertimeRequest.employee_id == employee_id,
+            OvertimeRequest.for_pay_month == pay_month,
+            OvertimeRequest.for_pay_year == pay_year,
+            OvertimeRequest.status == 'approved',
+            db.or_(
+                OvertimeRequest.applied_to_payroll_run_id.is_(None),
+                OvertimeRequest.applied_to_payroll_run_id == payroll_run_id,
+            ),
+        )
+        .all()
+    )
 
 
 @payroll_bp.route('/')
@@ -171,15 +199,32 @@ def run_calculate(id):
     excluded_count = len(excluded_employee_ids & eligible_employee_ids)
     included_count = max(eligible_count - excluded_count, 0)
 
-    def _recalculate_single_employee(emp):
-        """Recalculate payroll lines for one employee in this run."""
+    def _recalculate_single_employee(emp_id: int):
+        """Recalculate payroll lines for one employee in this run. Returns (ok, error, calc_dict)."""
+        emp = (
+            db.session.query(EmpModel)
+            .options(joinedload(EmpModel.branch))
+            .filter(EmpModel.id == emp_id, EmpModel.company_id == run_obj.company_id)
+            .first()
+        )
+        if not emp:
+            return False, 'Employee not found in this payroll country scope.', None
+
         salary = db.session.query(EmployeeSalary).filter(
             EmployeeSalary.employee_id == emp.id,
             EmployeeSalary.effective_from <= period_end,
             (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
         ).order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc()).first()
         if not salary:
-            return False, 'Employee has no salary setup for this period.'
+            return False, 'Employee has no salary setup for this period.', None
+
+        ot_rows = _approved_overtime_for_employee(
+            run_obj.company_id,
+            emp.id,
+            run_obj.pay_month,
+            run_obj.pay_year,
+            run_obj.id,
+        )
 
         # Release this employee's overtime rows tied to this run and remove existing payroll line.
         db.session.execute(
@@ -194,6 +239,7 @@ def run_calculate(id):
             PayrollItem.payroll_run_id == run_obj.id,
             PayrollItem.employee_id == emp.id,
         ).delete()
+        db.session.flush()
 
         hire_or_start = emp.hire_date
         if salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
@@ -247,18 +293,6 @@ def run_calculate(id):
             ),
         ).all()
         manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
-        ot_rows = (
-            db.session.query(OvertimeRequest)
-            .filter(
-                OvertimeRequest.company_id == run_obj.company_id,
-                OvertimeRequest.employee_id == emp.id,
-                OvertimeRequest.for_pay_month == run_obj.pay_month,
-                OvertimeRequest.for_pay_year == run_obj.pay_year,
-                OvertimeRequest.status == 'approved',
-                OvertimeRequest.applied_to_payroll_run_id.is_(None),
-            )
-            .all()
-        )
         overtime_days = sum((Decimal(str(r.days)) for r in ot_rows), start=Decimal('0'))
         if emp_allowances or emp_benefits:
             allowance_breakdown = []
@@ -339,10 +373,10 @@ def run_calculate(id):
                 net_pay=calc['net_pay'],
                 earnings_breakdown=calc['earnings_breakdown'],
                 deductions_breakdown=calc['deductions_breakdown'],
-                is_pro_rata=(factor < 1),
+                is_pro_rata=(cal_days is not None or factor < Decimal('1')),
             )
         )
-        return True, None
+        return True, None, calc
 
     if request.method == 'POST' and request.form.get('action') == 'save_exclusions':
         selected = set(request.form.getlist('excluded_employee_ids', type=int))
@@ -449,19 +483,12 @@ def run_calculate(id):
                 ),
             ).all()
             manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
-            # Avoid double deduction: if employee already has an active recurring Welfare Kit
-            # deduction (e.g. via bulk setup), do not also apply the employer-level flat amount.
-            ot_rows = (
-                db.session.query(OvertimeRequest)
-                .filter(
-                    OvertimeRequest.company_id == run_obj.company_id,
-                    OvertimeRequest.employee_id == emp.id,
-                    OvertimeRequest.for_pay_month == run_obj.pay_month,
-                    OvertimeRequest.for_pay_year == run_obj.pay_year,
-                    OvertimeRequest.status == 'approved',
-                    OvertimeRequest.applied_to_payroll_run_id.is_(None),
-                )
-                .all()
+            ot_rows = _approved_overtime_for_employee(
+                run_obj.company_id,
+                emp.id,
+                run_obj.pay_month,
+                run_obj.pay_year,
+                run_obj.id,
             )
             overtime_days = sum((Decimal(str(r.days)) for r in ot_rows), start=Decimal('0'))
             if emp_allowances or emp_benefits:
@@ -543,7 +570,7 @@ def run_calculate(id):
                 net_pay=calc['net_pay'],
                 earnings_breakdown=calc['earnings_breakdown'],
                 deductions_breakdown=calc['deductions_breakdown'],
-                is_pro_rata=(factor < 1),
+                is_pro_rata=(cal_days is not None or factor < Decimal('1')),
             )
             db.session.add(item)
         db.session.commit()
@@ -559,25 +586,30 @@ def run_calculate(id):
             if q_rec:
                 return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
-        emp = next((e for e in employees if e.id == emp_id), None)
-        if not emp:
+        if emp_id not in {e.id for e in employees}:
             flash('Employee not found in this payroll country scope.', 'danger')
             if q_rec:
                 return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
-        if emp.id in excluded_employee_ids:
+        if emp_id in excluded_employee_ids:
             flash('Employee is excluded from this run. Remove exclusion first.', 'warning')
             if q_rec:
                 return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
-        ok, err = _recalculate_single_employee(emp)
+        ok, err, calc = _recalculate_single_employee(emp_id)
         if not ok:
             flash(err or 'Could not recalculate employee.', 'danger')
             if q_rec:
                 return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
             return redirect(url_for('payroll.run_calculate', id=run_obj.id))
         db.session.commit()
-        flash(f'Payroll recalculated for {emp.full_name}.', 'success')
+        gross_msg = ''
+        if calc and calc.get('gross_pay') is not None:
+            gross_msg = f" Gross pay: {Decimal(str(calc['gross_pay'])):,.2f} KES."
+        emp = db.session.get(EmpModel, emp_id)
+        flash(f"Payroll recalculated for {emp.full_name if emp else 'employee'}.{gross_msg}", 'success')
+        if q_rec:
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
         return redirect(url_for('payroll.view_run', id=run_obj.id))
     q = (request.args.get('q') or '').strip()
     employees_table = employees
@@ -594,6 +626,12 @@ def run_calculate(id):
             for e in missing_salary
             if needle in (e.full_name or '').lower() or needle in str(e.employee_number or '').lower()
         ]
+    payroll_gross_by_employee = {
+        row.employee_id: row.gross_pay
+        for row in db.session.query(PayrollItem.employee_id, PayrollItem.gross_pay).filter(
+            PayrollItem.payroll_run_id == run_obj.id
+        ).all()
+    }
     return render_template(
         'payroll/run_calculate.html',
         run=run_obj,
@@ -607,6 +645,7 @@ def run_calculate(id):
         included_count=included_count,
         missing_salary_ids=missing_salary_ids,
         missing_salary=missing_salary_display,
+        payroll_gross_by_employee=payroll_gross_by_employee,
         q=q,
     )
 
@@ -694,7 +733,13 @@ def view_run(id):
         from flask import abort
         abort(404)
     q = (request.args.get('q') or '').strip()
-    items = run_obj.items.all()
+    items = (
+        db.session.query(PayrollItem)
+        .filter(PayrollItem.payroll_run_id == run_obj.id)
+        .options(joinedload(PayrollItem.employee))
+        .order_by(PayrollItem.employee_id)
+        .all()
+    )
     if q:
         needle = q.lower()
         items = [
@@ -888,19 +933,52 @@ def my_payslips():
     )
 
 
-@payroll_bp.route('/payslip/<int:run_id>/<int:employee_id>')
-@login_required
-def view_payslip(run_id, employee_id):
-    from app.services.statutory_service import get_personal_relief
-    item = (
+def _earnings_lines_for_payslip(item: PayrollItem) -> list[dict]:
+    """Positive earnings rows from stored breakdown, ordered for payslip display."""
+    lines = []
+    for row in item.earnings_breakdown or []:
+        try:
+            amt = Decimal(str(row.get('amount') or 0))
+        except (TypeError, ValueError):
+            continue
+        if amt == 0:
+            continue
+        code = str(row.get('code') or '').upper()
+        lines.append({
+            'code': code,
+            'name': (row.get('name') or row.get('code') or 'Earning').strip(),
+            'amount': amt,
+        })
+    sort_rank = {'BASIC': 0, 'HOUSE': 10, 'TRANSPORT': 11, 'MEAL': 12, 'OTHER_ALLOW': 13, 'OTHER_EARN': 90, 'OVERTIME': 99}
+
+    def _sort_key(line):
+        code = line['code']
+        if code.startswith('BEN-'):
+            return (50, line['name'].lower())
+        return (sort_rank.get(code, 40), line['name'].lower())
+
+    lines.sort(key=_sort_key)
+    return lines
+
+
+def _payslip_item_query(run_id: int, employee_id: int):
+    return (
         db.session.query(PayrollItem)
-        .options(joinedload(PayrollItem.employee).joinedload(EmpModel.branch))
+        .options(
+            joinedload(PayrollItem.payroll_run).joinedload(PayrollRun.company),
+            joinedload(PayrollItem.employee).joinedload(EmpModel.branch),
+            joinedload(PayrollItem.employee).joinedload(EmpModel.department),
+            joinedload(PayrollItem.employee).joinedload(EmpModel.job_title),
+        )
         .filter(
             PayrollItem.payroll_run_id == run_id,
             PayrollItem.employee_id == employee_id,
         )
-        .first()
     )
+
+
+def _fetch_payslip_item(run_id: int, employee_id: int) -> PayrollItem:
+    item = _payslip_item_query(run_id, employee_id).first()
     if not item:
         abort(404)
     run = item.payroll_run
@@ -912,9 +990,16 @@ def view_payslip(run_id, employee_id):
         abort(403)
     if is_own and not has_payroll_view and run.status not in _EMPLOYEE_PAYSLIP_RUN_STATUSES:
         abort(403)
-    # Breakdown helper values for country-aware payslip display
+    return item
+
+
+def _build_payslip_context(item: PayrollItem) -> dict:
+    from app.services.statutory_service import get_personal_relief
+    from app.utils.currency import currency_for_employee
+
     dd = item.deductions_breakdown or []
-    period_date = date(item.payroll_run.pay_year, item.payroll_run.pay_month, 1)
+    run = item.payroll_run
+    period_date = date(run.pay_year, run.pay_month, 1)
     emp_ps = item.employee
     scc = (emp_ps.branch.country_code if emp_ps and emp_ps.branch else 'KE').upper()[:2]
     personal_relief = get_personal_relief(period_date, emp_ps.company_id, scc) if emp_ps else Decimal('0')
@@ -925,16 +1010,8 @@ def view_payslip(run_id, employee_id):
     show_shif = Decimal(str(item.shif or 0)) > 0
     show_housing_levy = Decimal(str(item.housing_levy or 0)) > 0
     show_personal_relief = Decimal(str(personal_relief or 0)) > 0
-    allowable_deductions = (item.gross_pay - item.taxable_pay)
-    overtime_amount = Decimal('0')
-    for e in (item.earnings_breakdown or []):
-        if (e.get('code') or '').upper() != 'OVERTIME':
-            continue
-        try:
-            overtime_amount += Decimal(str(e.get('amount') or 0))
-        except Exception:
-            continue
-    show_overtime = overtime_amount > 0
+    allowable_deductions = item.gross_pay - item.taxable_pay
+    earnings_lines = _earnings_lines_for_payslip(item)
     other_deduction_lines = []
     pension_percent_amount = Decimal('0')
     pension_fixed_amount = Decimal('0')
@@ -960,29 +1037,58 @@ def view_payslip(run_id, employee_id):
             if amt == 0:
                 continue
             other_deduction_lines.append(d)
-    from app.utils.currency import currency_for_employee
-
     payslip_currency = currency_for_employee(
         item.employee,
         app_default=current_app.config.get('DEFAULT_CURRENCY', 'KES'),
     )
-    return render_template(
-        'payroll/view_payslip.html',
-        item=item,
-        nssf_tier_1=nssf_tier_1,
-        nssf_tier_2=nssf_tier_2,
-        allowable_deductions=allowable_deductions,
-        personal_relief=personal_relief,
-        period_date=period_date,
-        other_deduction_lines=other_deduction_lines,
-        payslip_currency=payslip_currency,
-        statutory_country_code=scc,
-        show_nssf_tiers=show_nssf_tiers,
-        show_shif=show_shif,
-        show_housing_levy=show_housing_levy,
-        show_personal_relief=show_personal_relief,
-        overtime_amount=overtime_amount,
-        show_overtime=show_overtime,
-        pension_percent_amount=pension_percent_amount,
-        pension_fixed_amount=pension_fixed_amount,
+    company_name = run.company.name if run and run.company else None
+    return {
+        'item': item,
+        'nssf_tier_1': nssf_tier_1,
+        'nssf_tier_2': nssf_tier_2,
+        'allowable_deductions': allowable_deductions,
+        'personal_relief': personal_relief,
+        'period_date': period_date,
+        'other_deduction_lines': other_deduction_lines,
+        'payslip_currency': payslip_currency,
+        'statutory_country_code': scc,
+        'show_nssf_tiers': show_nssf_tiers,
+        'show_shif': show_shif,
+        'show_housing_levy': show_housing_levy,
+        'show_personal_relief': show_personal_relief,
+        'earnings_lines': earnings_lines,
+        'pension_percent_amount': pension_percent_amount,
+        'pension_fixed_amount': pension_fixed_amount,
+        'company_name': company_name,
+    }
+
+
+def _payslip_pdf_filename(item: PayrollItem) -> str:
+    run = item.payroll_run
+    emp = item.employee
+    slug = (emp.employee_number if emp and emp.employee_number else f'emp-{item.employee_id}').strip()
+    slug = re.sub(r'[^\w\-]+', '-', slug) or f'emp-{item.employee_id}'
+    return f'payslip-{run.pay_year}-{run.pay_month:02d}-{slug}.pdf'
+
+
+@payroll_bp.route('/payslip/<int:run_id>/<int:employee_id>')
+@login_required
+def view_payslip(run_id, employee_id):
+    item = _fetch_payslip_item(run_id, employee_id)
+    return render_template('payroll/view_payslip.html', **_build_payslip_context(item))
+
+
+@payroll_bp.route('/payslip/<int:run_id>/<int:employee_id>/pdf')
+@login_required
+def export_payslip_pdf(run_id, employee_id):
+    item = _fetch_payslip_item(run_id, employee_id)
+    from app.services.payslip_pdf_service import build_payslip_pdf
+
+    ctx = _build_payslip_context(item)
+    pdf_bytes = build_payslip_pdf(ctx)
+    return send_file(
+        BytesIO(pdf_bytes),
+        as_attachment=True,
+        download_name=_payslip_pdf_filename(item),
+        mimetype='application/pdf',
     )

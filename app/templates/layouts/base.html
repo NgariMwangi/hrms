@@ -16,7 +16,7 @@
     {% if current_user.is_authenticated %}
     <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
     <aside class="app-sidebar" id="sidebar">
-        <a class="sidebar-brand" href="{{ url_for('dashboard.index') }}">
+        <a class="sidebar-brand" href="{{ url_for(home_endpoint) }}">
             <i class="bi bi-building me-2"></i>{{ app_name }}
         </a>
         <nav class="nav flex-column">
@@ -29,9 +29,16 @@
             {% set overtime_active = ep and ep.startswith('overtime') %}
             {% set employees_section_active = ep and (ep.startswith('employees') or ep.startswith('casual_workers')) %}
             {% set show_payroll_group = current_user.employee_id and has_permission('view_payroll') %}
+            {% if not is_employee_self_service %}
             <a class="nav-link {{ 'active' if ep == 'dashboard.index' else '' }}" href="{{ url_for('dashboard.index') }}">
                 <i class="bi bi-grid-1x2"></i> Dashboard
             </a>
+            {% endif %}
+            {% if current_user.employee_id %}
+            <a class="nav-link {{ 'active' if ep == 'employees.profile' else '' }}" href="{{ url_for('employees.profile') }}">
+                <i class="bi bi-person-circle"></i> My profile
+            </a>
+            {% endif %}
             {% if has_permission('view_employees') %}
             <div class="sidebar-nav-group">
                 <button class="sidebar-nav-toggle {{ 'collapsed' if not employees_section_active else '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#nav-sidebar-employees" aria-expanded="{{ 'true' if employees_section_active else 'false' }}" aria-controls="nav-sidebar-employees">
@@ -179,6 +186,11 @@
                     <span class="user-email">{{ current_user.email }}</span>
                 </a>
                 <ul class="dropdown-menu dropdown-menu-start shadow">
+                    {% if current_user.employee_id %}
+                    <li><a class="dropdown-item" href="{{ url_for('employees.profile') }}"><i class="bi bi-person-circle me-2"></i>My profile</a></li>
+                    {% endif %}
+                    <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}"><i class="bi bi-key me-2"></i>Change password</a></li>
+                    <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
                 </ul>
             </div>
@@ -210,7 +222,7 @@
                     {% else %}
                     <span class="text-muted small d-none d-sm-inline" title="Add a branch under Organization → Branches">No branches configured</span>
                     {% endif %}
-                    {% if tenant_nav.currency %}
+                    {% if tenant_nav.currency and not is_employee_self_service %}
                     <span class="tenant-topbar-pill tenant-topbar-pill--currency" title="Payroll display currency (from your branch or app default)">
                         <i class="bi bi-currency-exchange"></i>
                         <span class="tenant-topbar-pill-text">{{ tenant_nav.currency }}</span>

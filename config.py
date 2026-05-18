@@ -43,7 +43,7 @@ class Config:
     PASSWORD_EXPIRY_DAYS = 90
     ACCOUNT_LOCKOUT_ATTEMPTS = 5
     ACCOUNT_LOCKOUT_DURATION_MINUTES = 15
-    RATE_LIMIT_AUTH = '5 per minute'
+    RATE_LIMIT_AUTH = '50 per minute'
 
     # File uploads
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(
@@ -73,6 +73,7 @@ class Config:
     # P9 / statutory reporting (optional; set via env)
     EMPLOYER_NAME = os.environ.get('EMPLOYER_NAME') or ''
     EMPLOYER_KRA_PIN = os.environ.get('EMPLOYER_KRA_PIN') or ''
+    P9_TEMPLATE_PATH = os.environ.get('P9_TEMPLATE_PATH') or ''
 
     # Logging
     LOG_TO_STDOUT = os.environ.get('LOG_TO_STDOUT', 'false').lower() == 'true'

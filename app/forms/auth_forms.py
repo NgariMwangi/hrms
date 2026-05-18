@@ -53,3 +53,25 @@ class ResetPasswordForm(FlaskForm):
     def validate_confirm(self, field):
         if self.password.data != field.data:
             raise ValidationError('Passwords must match')
+
+
+class ChangePasswordForm(FlaskForm):
+    """Signed-in user changes password (requires current password)."""
+    current_password = PasswordField('Current password', validators=[DataRequired()])
+    new_password = PasswordField('New password', validators=[DataRequired()])
+    confirm_password = PasswordField(
+        'Confirm new password',
+        validators=[
+            DataRequired(),
+            EqualTo('new_password', message='Passwords must match'),
+        ],
+    )
+    submit = SubmitField('Change password')
+
+    def validate_new_password(self, field):
+        from flask import current_app
+        min_len = current_app.config.get('PASSWORD_MIN_LENGTH', 8)
+        if len(field.data or '') < min_len:
+            raise ValidationError(f'Password must be at least {min_len} characters')
+        if field.data == self.current_password.data:
+            raise ValidationError('New password must be different from your current password')

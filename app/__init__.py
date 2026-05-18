@@ -157,7 +157,10 @@ _TABLE_ORDER = (
     'audit_logs', 'leave_balances', 'leave_requests', 'employee_salaries', 'employee_allowances',
     'deductions', 'employee_deductions',
     'attendance_records', 'employee_documents', 'employee_benefits', 'employee_benefit_payments', 'casual_workers', 'casual_payments',
-    'payroll_runs', 'overtime_requests', 'payroll_run_exclusions', 'payroll_run_manual_deductions', 'payroll_items', 'payroll_statutory_remitances',
+    'consultants', 'consultant_compensation',
+    'payroll_runs', 'overtime_requests', 'payroll_run_exclusions', 'payroll_run_manual_deductions', 'payroll_items',
+    'consultant_payroll_run_exclusions', 'consultant_payroll_items',
+    'payroll_statutory_remitances',
     'notifications', 'saved_reports',
 )
 
@@ -235,6 +238,7 @@ def _register_blueprints(app):
     from app.routes.api import api_bp
     from app.routes.overtime import overtime_bp
     from app.routes.casual_workers import casual_workers_bp
+    from app.routes.consultants import consultants_bp
 
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
@@ -254,6 +258,7 @@ def _register_blueprints(app):
     app.register_blueprint(leave_bp, url_prefix='/leave')
     app.register_blueprint(overtime_bp, url_prefix='/overtime')
     app.register_blueprint(casual_workers_bp, url_prefix='/casual-workers')
+    app.register_blueprint(consultants_bp, url_prefix='/consultants')
     app.register_blueprint(attendance_bp, url_prefix='/attendance')
     app.register_blueprint(payroll_bp, url_prefix='/payroll')
     app.register_blueprint(statutory_bp, url_prefix='/statutory')

@@ -37,6 +37,12 @@ from app.models.report import SavedReport
 from app.models.employer import Employer
 from app.models.benefit import EmployeeBenefit, EmployeeBenefitPayment
 from app.models.casual_worker import CasualWorker, CasualPayment
+from app.models.consultant import (
+    Consultant,
+    ConsultantCompensation,
+    ConsultantPayrollItem,
+    ConsultantPayrollRunExclusion,
+)
 
 __all__ = [
     'Company',
@@ -80,4 +86,8 @@ __all__ = [
     'EmployeeBenefitPayment',
     'CasualWorker',
     'CasualPayment',
+    'Consultant',
+    'ConsultantCompensation',
+    'ConsultantPayrollItem',
+    'ConsultantPayrollRunExclusion',
 ]

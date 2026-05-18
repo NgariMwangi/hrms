@@ -40,12 +40,13 @@
     <a href="{{ url_for('payroll.index') }}" class="btn btn-outline-secondary">Back to list</a>
 </div>
 <form method="get" class="row g-2 mb-3">
+    <input type="hidden" name="tab" value="{{ tab }}"/>
     <div class="col-md-4">
         <input
             type="text"
             name="q"
             class="form-control"
-            placeholder="Search employee name or number"
+            placeholder="Search name or number"
             value="{{ q or '' }}"
         />
     </div>
@@ -54,10 +55,22 @@
     </div>
     {% if q %}
     <div class="col-auto">
-        <a href="{{ url_for('payroll.view_run', id=run.id) }}" class="btn btn-outline-secondary">Clear</a>
+        <a href="{{ url_for('payroll.view_run', id=run.id, tab=tab) }}" class="btn btn-outline-secondary">Clear</a>
     </div>
     {% endif %}
 </form>
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if tab == 'staff' else '' }}" href="{{ url_for('payroll.view_run', id=run.id, tab='staff', q=q or none) }}">
+            Staff ({{ items|length }})
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if tab == 'consultants' else '' }}" href="{{ url_for('payroll.view_run', id=run.id, tab='consultants', q=q or none) }}">
+            Consultants ({{ consultant_items|length }})
+        </a>
+    </li>
+</ul>
 {% if run.finance_reviewed_at or run.paid_at %}
 <div class="card mb-3">
     <div class="card-body py-2">
@@ -72,11 +85,18 @@
     </div>
 </div>
 {% endif %}
-{% if run.status == 'draft' and not items %}
+{% if run.status == 'draft' and not items and not consultant_items %}
 <div class="alert alert-warning">
     This payroll run has no calculated items yet. Click <strong>Calculate Payroll</strong> first, then return to this page.
 </div>
 {% endif %}
+
+{% if tab == 'staff' %}
+<div class="card mb-3">
+    <div class="card-body py-2 small">
+        <strong>Totals:</strong> Gross {{ "%.2f"|format(staff_totals.gross|float) }} · Net {{ "%.2f"|format(staff_totals.net|float) }}
+    </div>
+</div>
 <div class="table-responsive">
     <table class="table">
         <thead><tr><th>Employee</th><th>Gross</th><th>PAYE</th><th>NSSF</th><th>SHIF</th><th>Housing</th><th>Other ded.</th><th>Net</th><th></th></tr></thead>
@@ -94,9 +114,34 @@
             <td><a href="{{ url_for('payroll.view_payslip', run_id=run.id, employee_id=item.employee_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="text-muted">No items. Run calculation first.</td></tr>
+        <tr><td colspan="9" class="text-muted">No staff items. Run calculation first.</td></tr>
         {% endfor %}
         </tbody>
     </table>
 </div>
+{% else %}
+<div class="card mb-3">
+    <div class="card-body py-2 small">
+        <strong>Totals:</strong> Gross {{ "%.2f"|format(consultant_totals.gross|float) }} · WHT {{ "%.2f"|format(consultant_totals.wht|float) }} · Net {{ "%.2f"|format(consultant_totals.net|float) }}
+    </div>
+</div>
+<div class="table-responsive">
+    <table class="table">
+        <thead><tr><th>Consultant</th><th>Gross</th><th>Withholding</th><th>Net</th><th></th></tr></thead>
+        <tbody>
+        {% for item in consultant_items %}
+        <tr>
+            <td>{{ item.consultant.full_name if item.consultant else '-' }}</td>
+            <td>{{ "%.2f"|format(item.gross_pay|float) }}</td>
+            <td>{{ "%.2f"|format(item.withholding_tax|float) }}</td>
+            <td>{{ "%.2f"|format(item.net_pay|float) }}</td>
+            <td><a href="{{ url_for('payroll.view_consultant_payslip', run_id=run.id, consultant_id=item.consultant_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-muted">No consultant items. Run calculation first.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 {% endblock %}

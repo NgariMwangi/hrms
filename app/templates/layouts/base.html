@@ -27,7 +27,7 @@
             {% set leave_section_active = ep and ep.startswith('leave') %}
             {% set payroll_section_active = ep and ep.startswith('payroll') %}
             {% set overtime_active = ep and ep.startswith('overtime') %}
-            {% set employees_section_active = ep and (ep.startswith('employees') or ep.startswith('casual_workers')) %}
+            {% set employees_section_active = ep and (ep.startswith('employees') or ep.startswith('casual_workers') or ep.startswith('consultants')) %}
             {% set show_payroll_group = current_user.employee_id and has_permission('view_payroll') %}
             {% if not is_employee_self_service %}
             <a class="nav-link {{ 'active' if ep == 'dashboard.index' else '' }}" href="{{ url_for('dashboard.index') }}">
@@ -55,6 +55,9 @@
                         </a>
                         <a class="nav-link {{ 'active' if ep and ep.startswith('casual_workers') else '' }}" href="{{ url_for('casual_workers.index') }}">
                             <i class="bi bi-person-workspace"></i> Casual Workers
+                        </a>
+                        <a class="nav-link {{ 'active' if ep and ep.startswith('consultants') else '' }}" href="{{ url_for('consultants.index') }}">
+                            <i class="bi bi-briefcase"></i> Consultants
                         </a>
                     </div>
                 </div>

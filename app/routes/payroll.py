@@ -26,6 +26,13 @@ from app.services.payroll_engine import (
     pro_rata_factor,
 )
 from app.services.deduction_service import get_manual_deduction_line_items_for_run
+from app.models.consultant import Consultant, ConsultantPayrollItem
+from app.services.consultant_payroll_run import (
+    consultant_eligibility_for_run,
+    calculate_all_consultants_for_run,
+    recalculate_single_consultant,
+    save_consultant_exclusions,
+)
 from app.services.statutory_remittance_service import (
     replace_statutory_remitances_for_run,
     institution_totals_for_run,
@@ -198,6 +205,14 @@ def run_calculate(id):
     excluded_employee_ids = {row.employee_id for row in excluded_rows}
     excluded_count = len(excluded_employee_ids & eligible_employee_ids)
     included_count = max(eligible_count - excluded_count, 0)
+
+    consultants, consultant_eligible_ids, missing_compensation, excluded_consultant_ids_set = (
+        consultant_eligibility_for_run(run_obj, period_start, period_end)
+    )
+    consultant_eligible_count = len(consultant_eligible_ids)
+    missing_compensation_ids = {c.id for c in missing_compensation}
+    consultant_excluded_count = len(excluded_consultant_ids_set & consultant_eligible_ids)
+    consultant_included_count = max(consultant_eligible_count - consultant_excluded_count, 0)
 
     def _recalculate_single_employee(emp_id: int):
         """Recalculate payroll lines for one employee in this run. Returns (ok, error, calc_dict)."""
@@ -405,6 +420,28 @@ def run_calculate(id):
             return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_save))
         return redirect(url_for('payroll.run_calculate', id=run_obj.id))
 
+    if request.method == 'POST' and request.form.get('action') == 'save_consultant_exclusions':
+        selected = set(request.form.getlist('excluded_consultant_ids', type=int))
+        selected = {cid for cid in selected if cid in consultant_eligible_ids}
+        consultant_id_scope = {c.id for c in consultants}
+        table_scope = set(request.form.getlist('exclusion_table_consultant_ids', type=int)) & consultant_id_scope
+        if table_scope:
+            new_excluded = save_consultant_exclusions(
+                run_obj.id,
+                consultant_eligible_ids,
+                selected,
+                table_scope=table_scope,
+                previous_excluded=excluded_consultant_ids_set,
+            )
+        else:
+            new_excluded = save_consultant_exclusions(run_obj.id, consultant_eligible_ids, selected)
+        db.session.commit()
+        flash(f'Consultant exclusions updated ({new_excluded} consultant(s) excluded).', 'success')
+        q_save = (request.form.get('q') or '').strip()
+        if q_save:
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_save))
+        return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+
     if request.method == 'POST' and request.form.get('action') == 'calculate':
         excluded_employee_ids = {
             row.employee_id
@@ -573,9 +610,50 @@ def run_calculate(id):
                 is_pro_rata=(cal_days is not None or factor < Decimal('1')),
             )
             db.session.add(item)
+        consultant_processed = calculate_all_consultants_for_run(run_obj, period_start, period_end)
         db.session.commit()
         processed = max(eligible_count - len(excluded_employee_ids & eligible_employee_ids), 0)
-        flash(f'Payroll calculated for {processed} employee(s).', 'success')
+        flash(
+            f'Payroll calculated for {processed} employee(s) and {consultant_processed} consultant(s).',
+            'success',
+        )
+        return redirect(url_for('payroll.view_run', id=run_obj.id))
+
+    if request.method == 'POST' and request.form.get('action') == 'recalculate_consultant':
+        q_rec = (request.form.get('q') or '').strip()
+        consultant_id = request.form.get('consultant_id', type=int)
+        if not consultant_id:
+            flash('Select a consultant to recalculate.', 'danger')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        if consultant_id not in {c.id for c in consultants}:
+            flash('Consultant not found in this payroll country scope.', 'danger')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        if consultant_id in excluded_consultant_ids_set:
+            flash('Consultant is excluded from this run. Remove exclusion first.', 'warning')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        ok, err, calc = recalculate_single_consultant(
+            run_obj, consultant_id, period_start, period_end
+        )
+        if not ok:
+            flash(err or 'Could not recalculate consultant.', 'danger')
+            if q_rec:
+                return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id))
+        db.session.commit()
+        gross_msg = ''
+        if calc and calc.get('gross_pay') is not None:
+            gross_msg = f" Gross pay: {Decimal(str(calc['gross_pay'])):,.2f}."
+        from app.models.consultant import Consultant as ConsultantModel
+        con = db.session.get(ConsultantModel, consultant_id)
+        flash(f"Payroll recalculated for {con.full_name if con else 'consultant'}.{gross_msg}", 'success')
+        if q_rec:
+            return redirect(url_for('payroll.run_calculate', id=run_obj.id, q=q_rec))
         return redirect(url_for('payroll.view_run', id=run_obj.id))
 
     if request.method == 'POST' and request.form.get('action') == 'recalculate_employee':
@@ -632,6 +710,28 @@ def run_calculate(id):
             PayrollItem.payroll_run_id == run_obj.id
         ).all()
     }
+    consultants_table = consultants
+    missing_compensation_display = missing_compensation
+    if q:
+        needle = q.lower()
+        consultants_table = [
+            c
+            for c in consultants
+            if needle in (c.full_name or '').lower()
+            or needle in str(c.consultant_number or '').lower()
+        ]
+        missing_compensation_display = [
+            c
+            for c in missing_compensation
+            if needle in (c.full_name or '').lower()
+            or needle in str(c.consultant_number or '').lower()
+        ]
+    payroll_gross_by_consultant = {
+        row.consultant_id: row.gross_pay
+        for row in db.session.query(ConsultantPayrollItem.consultant_id, ConsultantPayrollItem.gross_pay).filter(
+            ConsultantPayrollItem.payroll_run_id == run_obj.id
+        ).all()
+    }
     return render_template(
         'payroll/run_calculate.html',
         run=run_obj,
@@ -646,6 +746,15 @@ def run_calculate(id):
         missing_salary_ids=missing_salary_ids,
         missing_salary=missing_salary_display,
         payroll_gross_by_employee=payroll_gross_by_employee,
+        consultants=consultants_table,
+        active_consultant_count=len(consultants),
+        consultant_eligible_count=consultant_eligible_count,
+        excluded_consultant_ids=excluded_consultant_ids_set,
+        consultant_excluded_count=consultant_excluded_count,
+        consultant_included_count=consultant_included_count,
+        missing_compensation_ids=missing_compensation_ids,
+        missing_compensation=missing_compensation_display,
+        payroll_gross_by_consultant=payroll_gross_by_consultant,
         q=q,
     )
 
@@ -733,11 +842,21 @@ def view_run(id):
         from flask import abort
         abort(404)
     q = (request.args.get('q') or '').strip()
+    tab = (request.args.get('tab') or 'staff').strip().lower()
+    if tab not in ('staff', 'consultants'):
+        tab = 'staff'
     items = (
         db.session.query(PayrollItem)
         .filter(PayrollItem.payroll_run_id == run_obj.id)
         .options(joinedload(PayrollItem.employee))
         .order_by(PayrollItem.employee_id)
+        .all()
+    )
+    consultant_items = (
+        db.session.query(ConsultantPayrollItem)
+        .filter(ConsultantPayrollItem.payroll_run_id == run_obj.id)
+        .options(joinedload(ConsultantPayrollItem.consultant))
+        .order_by(ConsultantPayrollItem.consultant_id)
         .all()
     )
     if q:
@@ -749,7 +868,32 @@ def view_run(id):
                 or needle in str(it.employee.employee_number or '').lower()
             )
         ]
-    return render_template('payroll/view_run.html', run=run_obj, items=items, q=q)
+        consultant_items = [
+            it for it in consultant_items
+            if it.consultant and (
+                needle in (it.consultant.full_name or '').lower()
+                or needle in str(it.consultant.consultant_number or '').lower()
+            )
+        ]
+    staff_totals = {
+        'gross': sum(Decimal(str(it.gross_pay or 0)) for it in items),
+        'net': sum(Decimal(str(it.net_pay or 0)) for it in items),
+    }
+    consultant_totals = {
+        'gross': sum(Decimal(str(it.gross_pay or 0)) for it in consultant_items),
+        'wht': sum(Decimal(str(it.withholding_tax or 0)) for it in consultant_items),
+        'net': sum(Decimal(str(it.net_pay or 0)) for it in consultant_items),
+    }
+    return render_template(
+        'payroll/view_run.html',
+        run=run_obj,
+        items=items,
+        consultant_items=consultant_items,
+        staff_totals=staff_totals,
+        consultant_totals=consultant_totals,
+        tab=tab,
+        q=q,
+    )
 
 
 @payroll_bp.route('/run/<int:id>/approve', methods=['POST'])
@@ -1092,3 +1236,68 @@ def export_payslip_pdf(run_id, employee_id):
         download_name=_payslip_pdf_filename(item),
         mimetype='application/pdf',
     )
+
+
+def _fetch_consultant_payslip_item(run_id: int, consultant_id: int) -> ConsultantPayrollItem:
+    item = (
+        db.session.query(ConsultantPayrollItem)
+        .options(
+            joinedload(ConsultantPayrollItem.consultant).joinedload(Consultant.branch),
+            joinedload(ConsultantPayrollItem.payroll_run),
+        )
+        .filter(
+            ConsultantPayrollItem.payroll_run_id == run_id,
+            ConsultantPayrollItem.consultant_id == consultant_id,
+        )
+        .first()
+    )
+    if not item or not item.payroll_run or item.payroll_run.company_id != require_company_id():
+        abort(404)
+    if not current_user.has_permission('view_payroll'):
+        abort(403)
+    return item
+
+
+def _build_consultant_payslip_context(item: ConsultantPayrollItem) -> dict:
+    from app.utils.currency import currency_for_branch
+
+    run = item.payroll_run
+    period_date = date(run.pay_year, run.pay_month, 1)
+    con = item.consultant
+    payslip_currency = currency_for_branch(
+        con.branch if con else None,
+        app_default=current_app.config.get('DEFAULT_CURRENCY', 'KES'),
+    )
+    earnings_lines = []
+    for e in item.earnings_breakdown or []:
+        try:
+            amt = float(e.get('amount') or 0)
+        except (TypeError, ValueError):
+            amt = 0.0
+        if amt:
+            earnings_lines.append(e)
+    deduction_lines = []
+    for d in item.deductions_breakdown or []:
+        try:
+            amt = float(d.get('amount') or 0)
+        except (TypeError, ValueError):
+            amt = 0.0
+        if amt:
+            deduction_lines.append(d)
+    return {
+        'item': item,
+        'consultant': con,
+        'period_date': period_date,
+        'payslip_currency': payslip_currency,
+        'earnings_lines': earnings_lines,
+        'deduction_lines': deduction_lines,
+        'company_name': run.company.name if run and run.company else None,
+    }
+
+
+@payroll_bp.route('/consultant-payslip/<int:run_id>/<int:consultant_id>')
+@login_required
+@permission_required('view_payroll')
+def view_consultant_payslip(run_id, consultant_id):
+    item = _fetch_consultant_payslip_item(run_id, consultant_id)
+    return render_template('payroll/view_consultant_payslip.html', **_build_consultant_payslip_context(item))

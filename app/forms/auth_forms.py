@@ -43,16 +43,18 @@ class ForgotPasswordForm(FlaskForm):
 
 class ResetPasswordForm(FlaskForm):
     """Set new password (from reset link)."""
-    password = PasswordField('New Password', validators=[
+    password = PasswordField('New Password', validators=[DataRequired()])
+    confirm = PasswordField('Confirm Password', validators=[
         DataRequired(),
-        Length(min=8, message='Password must be at least 8 characters'),
+        EqualTo('password', message='Passwords must match'),
     ])
-    confirm = PasswordField('Confirm Password', validators=[DataRequired()])
     submit = SubmitField('Reset Password')
 
-    def validate_confirm(self, field):
-        if self.password.data != field.data:
-            raise ValidationError('Passwords must match')
+    def validate_password(self, field):
+        from flask import current_app
+        min_len = current_app.config.get('PASSWORD_MIN_LENGTH', 8)
+        if len(field.data or '') < min_len:
+            raise ValidationError(f'Password must be at least {min_len} characters')
 
 
 class ChangePasswordForm(FlaskForm):

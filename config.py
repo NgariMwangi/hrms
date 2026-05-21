@@ -4,6 +4,11 @@ Environment-based: development, testing, production.
 """
 import os
 from datetime import timedelta
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / '.env')
 
 
 class Config:
@@ -44,6 +49,14 @@ class Config:
     ACCOUNT_LOCKOUT_ATTEMPTS = 10
     ACCOUNT_LOCKOUT_DURATION_MINUTES = 15
     RATE_LIMIT_AUTH = '50 per minute'
+    PASSWORD_RESET_EXPIRY_SECONDS = int(os.environ.get('PASSWORD_RESET_EXPIRY_SECONDS', '3600'))
+
+    # Brevo transactional email (password reset)
+    BREVO_API_KEY = os.environ.get('BREVO_API_KEY') or ''
+    BREVO_SENDER_EMAIL = os.environ.get('BREVO_SENDER_EMAIL') or ''
+    BREVO_SENDER_NAME = os.environ.get('BREVO_SENDER_NAME') or 'HRMS'
+    APP_BASE_URL = os.environ.get('APP_BASE_URL') or ''  # e.g. https://hrms.example.com
+    APP_NAME = os.environ.get('APP_NAME') or 'HRMS Kenya'
 
     # File uploads
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(

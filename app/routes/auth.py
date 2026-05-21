@@ -15,6 +15,11 @@ from app.forms.auth_forms import (
 )
 from app.services.audit_service import log_login, log_audit
 from app.services.company_bootstrap import bootstrap_company_defaults
+from app.services.password_reset_service import (
+    apply_password_reset,
+    initiate_password_reset,
+    verify_reset_token,
+)
 from app.utils.navigation import redirect_to_user_home, user_home_endpoint
 
 auth_bp = Blueprint('auth', __name__)
@@ -164,25 +169,52 @@ def logout():
 
 
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
+@limiter.limit(_auth_rate_limit)
 def forgot_password():
+    if current_user.is_authenticated:
+        return redirect_to_user_home()
     form = ForgotPasswordForm()
     if form.validate_on_submit():
-        user = db.session.query(User).filter_by(email=form.email.data.strip().lower()).first()
-        if user:
-            # TODO: generate token, send email via notification_service
-            flash('If that email exists, we sent a reset link.', 'info')
-        else:
-            flash('If that email exists, we sent a reset link.', 'info')
+        initiate_password_reset(form.email.data.strip().lower())
+        flash(
+            'If an account exists for that email, we sent a password reset link. '
+            'Check your inbox (and spam folder).',
+            'info',
+        )
         return redirect(url_for('auth.login'))
     return render_template('auth/forgot_password.html', form=form)
 
 
 @auth_bp.route('/reset-password/<token>', methods=['GET', 'POST'])
+@limiter.limit(_auth_rate_limit)
 def reset_password(token):
-    # TODO: verify token and load user
+    if current_user.is_authenticated:
+        logout_user()
+    user_id = verify_reset_token(token)
+    if not user_id:
+        flash('This reset link is invalid or has expired. Request a new one from the login page.', 'warning')
+        return redirect(url_for('auth.forgot_password'))
+    user = db.session.get(User, user_id)
+    if not user or not user.is_active:
+        flash('This reset link is invalid or has expired. Request a new one from the login page.', 'warning')
+        return redirect(url_for('auth.forgot_password'))
+
     form = ResetPasswordForm()
     if form.validate_on_submit():
-        # TODO: set password, invalidate token
-        flash('Password updated. You can log in.', 'success')
+        apply_password_reset(user, form.password.data)
+        db.session.commit()
+        log_audit(
+            'UPDATE',
+            record_type='User',
+            record_id=user.id,
+            user_id=user.id,
+            description='Password reset via email link',
+        )
+        flash('Your password has been updated. You can sign in now.', 'success')
         return redirect(url_for('auth.login'))
-    return render_template('auth/reset_password.html', form=form, token=token)
+    return render_template(
+        'auth/reset_password.html',
+        form=form,
+        token=token,
+        password_min_length=current_app.config.get('PASSWORD_MIN_LENGTH', 8),
+    )

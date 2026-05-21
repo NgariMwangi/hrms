@@ -6,9 +6,14 @@ import os
 import logging
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env before config import so BREVO_* and DATABASE_URL are available.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_PROJECT_ROOT / '.env')
+
 from flask import Flask
 from flask_wtf.csrf import CSRFError
-from dotenv import load_dotenv
 from sqlalchemy.exc import ProgrammingError
 
 from app.extensions import (
@@ -22,7 +27,22 @@ from app.extensions import (
 from config import get_config
 
 
-load_dotenv()
+def _apply_env_config(app: Flask) -> None:
+    """Re-apply selected settings from os.environ (after .env load)."""
+    for key in (
+        'BREVO_API_KEY',
+        'BREVO_SENDER_EMAIL',
+        'BREVO_SENDER_NAME',
+        'APP_BASE_URL',
+        'APP_NAME',
+        'PASSWORD_RESET_EXPIRY_SECONDS',
+    ):
+        raw = os.environ.get(key)
+        if raw is not None and str(raw).strip():
+            if key == 'PASSWORD_RESET_EXPIRY_SECONDS':
+                app.config[key] = int(raw)
+            else:
+                app.config[key] = str(raw).strip()
 
 
 def _ensure_writable_dir(path_value: str, fallback_name: str) -> tuple[Path, bool]:
@@ -52,6 +72,7 @@ def create_app(config_object=None):
     # Load config
     config = config_object or get_config()
     app.config.from_object(config)
+    _apply_env_config(app)
 
     # Ensure instance and storage dirs exist; fallback to /tmp/hrms/* when container FS is read-only.
     instance_dir, instance_fallback = _ensure_writable_dir(app.instance_path, 'instance')
@@ -309,7 +330,14 @@ def _register_request_hooks(app):
         endpoint = request.endpoint or ''
         if endpoint.startswith('static'):
             return None
-        if endpoint in ('auth.login', 'auth.logout', 'auth.change_password'):
+        if endpoint in (
+            'auth.login',
+            'auth.logout',
+            'auth.change_password',
+            'auth.forgot_password',
+            'auth.reset_password',
+            'auth.register',
+        ):
             return None
         return redirect(url_for('auth.change_password'))
 

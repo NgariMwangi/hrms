@@ -56,7 +56,7 @@
                 {{ form.auto_approve(class_='form-check-input', id='auto_approve') }}
                 <label class="form-check-label" for="auto_approve">{{ form.auto_approve.label.text }}</label>
             </div>
-            <span class="form-text">If unchecked, the request is <strong>pending</strong> and can be approved from the leave list like any other request.</span>
+            <span class="form-text">If unchecked, the request follows the normal workflow (supervisor then HR, or HR only if the employee has no manager).</span>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
             {{ form.submit(class_='btn btn-primary') }}

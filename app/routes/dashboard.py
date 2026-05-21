@@ -38,15 +38,12 @@ def index():
         .filter(Employee.status == 'active', Employee.company_id == cid)
         .count()
     )
-    # Pending leave (for managers/HR)
+    # Pending leave (supervisor queue + HR queue)
     pending_leave = 0
-    if current_user.has_permission('approve_leave'):
-        pending_leave = (
-            db.session.query(LeaveRequest)
-            .join(Employee, LeaveRequest.employee_id == Employee.id)
-            .filter(LeaveRequest.status == 'pending', Employee.company_id == cid)
-            .count()
-        )
+    if current_user.has_permission('approve_leave') or getattr(current_user, 'employee_id', None):
+        from app.services.leave_approval_service import count_pending_leave_for_user
+
+        pending_leave = count_pending_leave_for_user(current_user, cid)
     pending_overtime = 0
     if current_user.has_permission('approve_overtime'):
         pending_overtime = (

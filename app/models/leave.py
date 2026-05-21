@@ -70,7 +70,14 @@ class LeaveRequest(BaseModel):
     end_date = db.Column(db.Date, nullable=False)
     days_requested = db.Column(db.Numeric(5, 2), nullable=False)
     reason = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(30), default='pending', nullable=False)  # pending, approved, rejected, cancelled
+    status = db.Column(
+        db.String(30),
+        default='pending',
+        nullable=False,
+    )  # pending → pending_hr → approved; or rejected / cancelled
+    supervisor_reviewed_by_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    supervisor_reviewed_at = db.Column(db.DateTime, nullable=True)
+    supervisor_notes = db.Column(db.Text, nullable=True)
     reviewed_by_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_notes = db.Column(db.Text, nullable=True)
@@ -79,6 +86,16 @@ class LeaveRequest(BaseModel):
     employee = db.relationship('Employee', foreign_keys=[employee_id], backref='leave_requests')
     handover_to = db.relationship('Employee', foreign_keys=[handover_to_id], backref='leave_covering_for')
     leave_type = db.relationship('LeaveType', backref='requests')
+    supervisor_reviewed_by = db.relationship(
+        'User',
+        foreign_keys=[supervisor_reviewed_by_id],
+        backref='supervisor_leave_reviews',
+    )
+    reviewed_by = db.relationship(
+        'User',
+        foreign_keys=[reviewed_by_id],
+        backref='hr_leave_reviews',
+    )
 
 
 class PublicHoliday(BaseModel):

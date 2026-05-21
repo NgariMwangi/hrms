@@ -33,6 +33,17 @@ from app.services.leave_balance_service import (
     ensure_balance,
 )
 from app.services.public_holiday_service import public_holiday_dates_in_range
+from app.services.leave_approval_service import (
+    EDITABLE_STATUSES,
+    LEAVE_STATUS_APPROVED,
+    LEAVE_STATUS_PENDING_HR,
+    LEAVE_STATUS_REJECTED,
+    approval_stage_for_user,
+    initial_leave_status_for_employee,
+    leave_status_label,
+    supervisor_step_summary,
+    user_is_line_manager,
+)
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
 from app.utils.date_helpers import (
@@ -47,9 +58,24 @@ from sqlalchemy.orm import joinedload
 leave_bp = Blueprint('leave', __name__)
 
 
-def _leave_request_is_pending(lr: LeaveRequest) -> bool:
-    """Only pending requests can be edited or deleted."""
-    return (lr.status or '').strip().lower() == 'pending'
+def _leave_request_is_editable(lr: LeaveRequest) -> bool:
+    """Only before supervisor approval can the employee edit or delete."""
+    return (lr.status or '').strip().lower() in EDITABLE_STATUSES
+
+
+def _leave_requests_visible_query(cid: int):
+    """Base query for leave list scoped to company."""
+    return (
+        db.session.query(LeaveRequest)
+        .join(Employee, LeaveRequest.employee_id == Employee.id)
+        .filter(Employee.company_id == cid)
+        .options(
+            joinedload(LeaveRequest.leave_type),
+            joinedload(LeaveRequest.employee).joinedload(Employee.manager),
+            joinedload(LeaveRequest.handover_to),
+            joinedload(LeaveRequest.supervisor_reviewed_by),
+        )
+    )
 
 
 def _leave_country_for_employee(emp: Employee | None) -> str:
@@ -177,18 +203,20 @@ def _apply_leave_type_form(form: LeaveTypeForm, lt: LeaveType) -> None:
 def index():
     """Leave list - my requests or all (for HR/manager)."""
     cid = require_company_id()
-    q = (
-        db.session.query(LeaveRequest)
-        .join(Employee, LeaveRequest.employee_id == Employee.id)
-        .filter(Employee.company_id == cid)
-        .options(
-            joinedload(LeaveRequest.leave_type),
-            joinedload(LeaveRequest.employee),
-            joinedload(LeaveRequest.handover_to),
-        )
-    )
+    q = _leave_requests_visible_query(cid)
     if current_user.has_permission('approve_leave'):
         requests = q.order_by(LeaveRequest.created_at.desc()).all()
+    elif current_user.employee_id and user_is_line_manager(current_user, cid):
+        requests = (
+            q.filter(
+                db.or_(
+                    LeaveRequest.employee_id == current_user.employee_id,
+                    Employee.manager_id == current_user.employee_id,
+                )
+            )
+            .order_by(LeaveRequest.created_at.desc())
+            .all()
+        )
     else:
         emp_id = current_user.employee_id
         if not emp_id:
@@ -306,7 +334,7 @@ def request_leave():
             end_date=form.end_date.data,
             days_requested=days_requested,
             reason=form.reason.data,
-            status='pending',
+            status=initial_leave_status_for_employee(emp_self),
         )
         db.session.add(lr)
         db.session.commit()
@@ -420,7 +448,7 @@ def admin_request_leave():
             end_date=form.end_date.data,
             days_requested=days_requested,
             reason=form.reason.data,
-            status='approved' if auto else 'pending',
+            status='approved' if auto else initial_leave_status_for_employee(emp),
             reviewed_by_id=current_user.id if auto else None,
             reviewed_at=datetime.utcnow() if auto else None,
             review_notes=review_notes,
@@ -456,8 +484,8 @@ def edit_request(id):
     can_manage_all = current_user.has_permission('approve_leave')
     if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
         abort(403)
-    if not _leave_request_is_pending(lr):
-        flash('Only pending leave requests can be edited. Approved or finalized leave cannot be changed.', 'warning')
+    if not _leave_request_is_editable(lr):
+        flash('Only leave awaiting supervisor approval can be edited. After that, contact HR.', 'warning')
         return redirect(url_for('leave.index'))
 
     form = LeaveRequestForm(obj=lr)
@@ -559,8 +587,8 @@ def delete_request(id):
     can_manage_all = current_user.has_permission('approve_leave')
     if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
         abort(403)
-    if not _leave_request_is_pending(lr):
-        flash('Only pending leave requests can be deleted.', 'warning')
+    if not _leave_request_is_editable(lr):
+        flash('Only leave awaiting supervisor approval can be deleted.', 'warning')
         return redirect(url_for('leave.index'))
     db.session.delete(lr)
     db.session.commit()
@@ -802,29 +830,60 @@ def tracker():
 
 @leave_bp.route('/<int:id>/approve', methods=['GET', 'POST'])
 @login_required
-@permission_required('approve_leave')
 def approve(id):
     lr = db.session.get(LeaveRequest, id)
-    if not lr or lr.status != 'pending':
-        from flask import abort
+    if not lr:
         abort(404)
     emp_lr = db.session.get(Employee, lr.employee_id)
     if not emp_lr or emp_lr.company_id != require_company_id():
         abort(404)
+    stage = approval_stage_for_user(current_user, lr)
+    if not stage:
+        abort(403)
     form = LeaveApprovalForm()
     if form.validate_on_submit():
-        lr.status = 'approved' if form.action.data == 'approve' else 'rejected'
-        lr.reviewed_by_id = current_user.id
-        lr.reviewed_at = datetime.utcnow()
-        lr.review_notes = form.review_notes.data
-        y0, y1 = lr.start_date.year, lr.end_date.year
-        db.session.flush()
-        for y in range(y0, y1 + 1):
-            refresh_leave_balance_after_request_change(lr.employee_id, lr.leave_type_id, y)
+        action = form.action.data
+        now = datetime.utcnow()
+        notes = form.review_notes.data
+        if action == 'reject':
+            lr.status = LEAVE_STATUS_REJECTED
+            if stage == 'supervisor':
+                lr.supervisor_reviewed_by_id = current_user.id
+                lr.supervisor_reviewed_at = now
+                lr.supervisor_notes = notes
+            else:
+                lr.reviewed_by_id = current_user.id
+                lr.reviewed_at = now
+                lr.review_notes = notes
+        elif stage == 'supervisor':
+            lr.status = LEAVE_STATUS_PENDING_HR
+            lr.supervisor_reviewed_by_id = current_user.id
+            lr.supervisor_reviewed_at = now
+            lr.supervisor_notes = notes
+        else:
+            lr.status = LEAVE_STATUS_APPROVED
+            lr.reviewed_by_id = current_user.id
+            lr.reviewed_at = now
+            lr.review_notes = notes
+            y0, y1 = lr.start_date.year, lr.end_date.year
+            db.session.flush()
+            for y in range(y0, y1 + 1):
+                refresh_leave_balance_after_request_change(lr.employee_id, lr.leave_type_id, y)
         db.session.commit()
         flash('Leave request updated.', 'success')
         return redirect(url_for('leave.index'))
-    return render_template('leave/approve.html', request=lr, form=form)
+    stage_labels = {'supervisor': 'Supervisor', 'hr': 'HR'}
+    sup = supervisor_step_summary(lr)
+    if stage == 'hr' and sup.get('state') == 'awaiting':
+        sup['hr_can_bypass'] = True
+    return render_template(
+        'leave/approve.html',
+        request=lr,
+        form=form,
+        approval_stage=stage,
+        stage_label=stage_labels.get(stage, stage),
+        supervisor_summary=sup,
+    )
 
 
 @leave_bp.route('/types')

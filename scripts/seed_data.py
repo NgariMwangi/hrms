@@ -49,7 +49,7 @@ def run():
             ('mark_payroll_paid', 'Mark payroll as paid'),
             ('view_leave', 'View leave'),
             ('manage_leave_types', 'Manage leave types'),
-            ('approve_leave', 'Approve leave'),
+            ('approve_leave', 'Approve leave (HR final step)'),
             ('view_attendance', 'View attendance'),
             ('view_reports', 'View reports'),
             ('manage_statutory', 'Manage statutory rates'),
@@ -123,7 +123,6 @@ def run():
                 'view_reports',
             ],
             'MANAGER': [
-                'approve_leave',
                 'request_overtime',
                 'submit_overtime_same_dept',
                 'view_departments',
@@ -158,6 +157,15 @@ def run():
                     role_id=role.id, permission_id=perm.id
                 ).first():
                     db.session.add(RolePermission(role_id=role.id, permission_id=perm.id))
+        # Managers approve leave at supervisor step only (not HR final step).
+        manager_role = db.session.query(Role).filter_by(code='MANAGER').first()
+        hr_leave_perm = db.session.query(Permission).filter_by(code='approve_leave').first()
+        if manager_role and hr_leave_perm:
+            legacy = db.session.query(RolePermission).filter_by(
+                role_id=manager_role.id, permission_id=hr_leave_perm.id
+            ).first()
+            if legacy:
+                db.session.delete(legacy)
         db.session.commit()
 
         # Demo tenant (first-time DB or extra seed run)

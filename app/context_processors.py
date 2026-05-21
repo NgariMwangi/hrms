@@ -136,6 +136,33 @@ def inject_tenant_nav():
     }
 
 
+def inject_leave_approval_helpers():
+    """Leave workflow labels and per-request approval stage for templates."""
+    from app.services.leave_approval_service import (
+        approval_stage_for_user,
+        leave_status_label,
+        supervisor_step_summary,
+        user_is_line_manager,
+    )
+
+    def leave_approval_stage(leave_request):
+        if not current_user.is_authenticated or leave_request is None:
+            return None
+        return approval_stage_for_user(current_user, leave_request)
+
+    def is_line_manager():
+        if not current_user.is_authenticated or not getattr(current_user, 'company_id', None):
+            return False
+        return user_is_line_manager(current_user, current_user.company_id)
+
+    return {
+        'leave_status_label': leave_status_label,
+        'leave_approval_stage': leave_approval_stage,
+        'is_line_manager': is_line_manager,
+        'supervisor_step_summary': supervisor_step_summary,
+    }
+
+
 def inject_pending_approvals():
     """Global pending approvals counters for top-bar notifications."""
     empty = {
@@ -157,13 +184,10 @@ def inject_pending_approvals():
     leave_pending = 0
     overtime_pending = 0
 
-    if current_user.has_permission('approve_leave'):
-        leave_pending = (
-            db.session.query(LeaveRequest)
-            .join(Employee, LeaveRequest.employee_id == Employee.id)
-            .filter(LeaveRequest.status == 'pending', Employee.company_id == cid)
-            .count()
-        )
+    from app.services.leave_approval_service import count_pending_leave_for_user
+
+    if current_user.has_permission('approve_leave') or getattr(current_user, 'employee_id', None):
+        leave_pending = count_pending_leave_for_user(current_user, cid)
 
     if current_user.has_permission('approve_overtime'):
         overtime_pending = (

@@ -185,13 +185,9 @@ def _executive_summary_payload(company_id: int):
     )
     today = date.today()
     month_start = date(today.year, today.month, 1)
-    pending_leave = (
-        db.session.query(func.count(LeaveRequest.id))
-        .join(Employee, LeaveRequest.employee_id == Employee.id)
-        .filter(LeaveRequest.status == 'pending', Employee.company_id == company_id)
-        .scalar()
-        or 0
-    )
+    from app.services.leave_approval_service import count_all_open_leave_approvals
+
+    pending_leave = count_all_open_leave_approvals(company_id)
     pending_overtime = (
         db.session.query(func.count(OvertimeRequest.id))
         .filter(OvertimeRequest.company_id == company_id, OvertimeRequest.status == 'pending')

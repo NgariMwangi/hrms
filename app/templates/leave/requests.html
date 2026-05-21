@@ -2,7 +2,23 @@
 {% block title %}Leave - {{ app_name }}{% endblock %}
 
 {% macro leave_status_badge(r) %}
-<span class="badge bg-{{ 'warning' if r.status == 'pending' else 'success' if r.status == 'approved' else 'danger' }}">{{ r.status }}</span>
+{% set st = (r.status or '')|lower %}
+<span class="badge bg-{% if st == 'approved' %}success{% elif st in ('pending', 'pending_hr') %}warning text-dark{% elif st == 'rejected' %}danger{% else %}secondary{% endif %}">{{ leave_status_label(r.status) }}</span>
+{% endmacro %}
+
+{% macro supervisor_status_badge(r) %}
+{% set sup = supervisor_step_summary(r) %}
+{% if sup.state == 'not_applicable' %}
+<span class="text-muted small">—</span>
+{% elif sup.state == 'awaiting' %}
+<span class="badge bg-secondary" title="Manager: {{ sup.manager_name or '—' }}">Awaiting</span>
+{% elif sup.state == 'completed' %}
+<span class="badge bg-success" title="{{ sup.notes or '' }}">Done</span>
+{% elif sup.state == 'rejected' %}
+<span class="badge bg-danger">Rejected</span>
+{% else %}
+<span class="text-muted small">{{ sup.label }}</span>
+{% endif %}
 {% endmacro %}
 
 {% macro leave_remaining_cell(r) %}
@@ -27,8 +43,8 @@
     <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
 </form>
 {% endif %}
-{% if r.status == 'pending' and has_permission('approve_leave') %}
-<a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Approve/Reject</a>
+{% if leave_approval_stage(r) %}
+<a href="{{ url_for('leave.approve', id=r.id) }}" class="btn btn-sm btn-outline-primary">Review</a>
 {% endif %}
 {% endmacro %}
 
@@ -101,7 +117,9 @@
 </div>
 {% endif %}
 
-{% set show_employee_column = has_permission('approve_leave') %}
+{% set show_employee_column = has_permission('approve_leave') or is_line_manager() %}
+{% set show_supervisor_column = has_permission('approve_leave') %}
+{% set leave_table_cols = 8 + (1 if show_employee_column else 0) + (1 if show_supervisor_column else 0) %}
 <a href="{{ url_for('leave.request_leave') }}" class="btn btn-primary mb-3">New Request</a>
 <div class="d-none d-md-block table-responsive leave-requests-table-wrap">
     <table class="table leave-requests-table mb-0">
@@ -115,6 +133,7 @@
                 <th class="text-center">Days</th>
                 <th class="text-center">Remaining</th>
                 <th>Status</th>
+                {% if show_supervisor_column %}<th>Supervisor</th>{% endif %}
                 <th></th>
             </tr>
         </thead>
@@ -131,10 +150,11 @@
             <td class="text-center">{{ r.days_requested | fmt_days }}</td>
             <td class="text-center align-middle">{{ leave_remaining_cell(r) }}</td>
             <td>{{ leave_status_badge(r) }}</td>
+            {% if show_supervisor_column %}<td>{{ supervisor_status_badge(r) }}</td>{% endif %}
             <td class="text-nowrap">{{ leave_request_actions(r) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="{{ 9 if show_employee_column else 8 }}" class="text-muted">No leave requests.</td></tr>
+        <tr><td colspan="{{ leave_table_cols }}" class="text-muted">No leave requests.</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -164,6 +184,10 @@
                 <dd>{{ r.days_requested | fmt_days }}</dd>
                 <dt>Remaining</dt>
                 <dd>{{ leave_remaining_cell(r) }}</dd>
+                {% if show_supervisor_column %}
+                <dt>Supervisor</dt>
+                <dd>{{ supervisor_status_badge(r) }}</dd>
+                {% endif %}
                 {% if r.handover_to %}
                 <dt>Handover</dt>
                 <dd>{{ r.handover_to.full_name }}</dd>
@@ -179,6 +203,7 @@
     {% endfor %}
 </div>
 <p class="text-muted small mb-0">
-    <strong>Remaining</strong> is for <strong>approved</strong> leave only: days still to run in the period (from today through the end date), using the same rule as the leave type — <em>working days</em> (Mon–Fri) or <em>calendar days</em>. Before the start date, it shows the full period length. After the end date, it shows 0.
+    When a <strong>manager</strong> is set on the employee, they normally approve first; HR can still approve or reject anytime and will see supervisor status (Awaiting / Done).
+    <strong>Remaining</strong> is for <strong>approved</strong> leave only: days still to run in the period (from today through the end date), using the same rule as the leave type — <em>working days</em> (Mon–Fri) or <em>calendar days</em>.
 </p>
 {% endblock %}

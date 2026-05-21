@@ -346,6 +346,7 @@ def _register_context_processors(app):
     """Register template context processors."""
     from app.context_processors import (
         inject_config,
+        inject_leave_approval_helpers,
         inject_pending_approvals,
         inject_permissions,
         inject_tenant_nav,
@@ -354,6 +355,7 @@ def _register_context_processors(app):
     app.context_processor(inject_permissions)
     app.context_processor(inject_config)
     app.context_processor(inject_tenant_nav)
+    app.context_processor(inject_leave_approval_helpers)
     app.context_processor(inject_pending_approvals)
     register_template_filters(app)
 

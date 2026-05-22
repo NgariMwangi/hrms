@@ -44,7 +44,7 @@
         <div class="col-md-4 probation-fields d-none"><label class="form-label">Probation Start Date *</label><input type="date" name="probation_start_date" class="form-control" value="{{ (form.probation_start_date.data or employee.probation_start_date).strftime('%Y-%m-%d') if (form.probation_start_date.data or employee.probation_start_date) else '' }}"></div>
         <div class="col-md-4 probation-fields d-none"><label class="form-label">Probation End Date *</label><input type="date" name="probation_end_date" class="form-control" value="{{ (form.probation_end_date.data or employee.probation_end_date).strftime('%Y-%m-%d') if (form.probation_end_date.data or employee.probation_end_date) else '' }}"></div>
         <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract Start Date *</label><input type="date" name="contract_start_date" class="form-control" value="{{ (form.contract_start_date.data or employee.contract_start_date).strftime('%Y-%m-%d') if (form.contract_start_date.data or employee.contract_start_date) else '' }}"></div>
-        <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract End Date *</label><input type="date" name="contract_end_date" class="form-control" value="{{ (form.contract_end_date.data or employee.contract_end_date).strftime('%Y-%m-%d') if (form.contract_end_date.data or employee.contract_end_date) else '' }}"></div>
+        <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract End Date</label><input type="date" name="contract_end_date" class="form-control" value="{{ (form.contract_end_date.data or employee.contract_end_date).strftime('%Y-%m-%d') if (form.contract_end_date.data or employee.contract_end_date) else '' }}"></div>
         <div class="col-md-4">{{ form.status.label(class='form-label') }}{{ form.status(class='form-select') }}</div>
         <div class="col-md-6">
             <div class="form-check mt-2">
@@ -88,7 +88,7 @@ document.addEventListener('DOMContentLoaded', function() {
         contractFields.forEach(function(el) {
             el.classList.toggle('d-none', !isContract);
             var input = el.querySelector('input');
-            if (input) input.required = isContract;
+            if (input) input.required = isContract && input.name === 'contract_start_date';
         });
     }
     employmentType.addEventListener('change', toggleEmploymentTypeDates);

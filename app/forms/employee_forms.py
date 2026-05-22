@@ -119,14 +119,18 @@ class EmployeeForm(FlaskForm):
             if field.data < self.probation_start_date.data:
                 raise ValidationError('Probation end date cannot be before probation start date.')
 
+    def validate_contract_start_date(self, field):
+        if self.employment_type.data == 'contract' and not field.data:
+            raise ValidationError('Contract start date is required for contract employment type.')
+
     def validate_contract_end_date(self, field):
-        if self.employment_type.data == 'contract':
-            if not self.contract_start_date.data:
-                raise ValidationError('Contract start date is required for contract employment type.')
-            if not field.data:
-                raise ValidationError('Contract end date is required for contract employment type.')
-            if field.data < self.contract_start_date.data:
-                raise ValidationError('Contract end date cannot be before contract start date.')
+        if (
+            self.employment_type.data == 'contract'
+            and field.data
+            and self.contract_start_date.data
+            and field.data < self.contract_start_date.data
+        ):
+            raise ValidationError('Contract end date cannot be before contract start date.')
 
 
 class EmployeeSelfContactForm(FlaskForm):

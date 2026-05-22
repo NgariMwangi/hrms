@@ -1,62 +1,53 @@
 """
-Kenyan-specific validators: KRA PIN, National ID, NSSF, NHIF/SHIF, phone.
+Validators for employee identifiers and contact details.
+Kenya-specific formats are not enforced — IDs may be alphanumeric (e.g. Uganda NIN).
 """
 import re
 
+# Letters, digits, and common separators used on national/statutory IDs
+IDENTIFIER_PATTERN = re.compile(r'^[\w\s\-/.]+$', re.UNICODE)
 
-# KRA PIN: A followed by 9 alphanumeric (e.g. A001234567P)
-KRA_PIN_PATTERN = re.compile(r'^[A-Z]\d{8}[A-Z]$', re.IGNORECASE)
 
-
-def validate_kra_pin(value: str) -> tuple[bool, str]:
+def validate_optional_identifier(
+    value: str,
+    *,
+    field_name: str = 'Value',
+    max_length: int = 50,
+) -> tuple[bool, str]:
     """
-    Validate KRA PIN format. A + 9 alphanumeric.
+    Optional ID / reference number: allow mixed letters and digits.
     Returns (is_valid, error_message).
     """
     if not value or not value.strip():
-        return True, ''  # optional field
-    value = value.strip().upper()
-    if len(value) != 10:
-        return False, 'KRA PIN must be 10 characters (e.g. A001234567P).'
-    if not KRA_PIN_PATTERN.match(value):
-        return False, 'KRA PIN must start with a letter, followed by 8 digits and end with a letter.'
+        return True, ''
+    value = value.strip()
+    if len(value) > max_length:
+        return False, f'{field_name} must be at most {max_length} characters.'
+    if not IDENTIFIER_PATTERN.match(value):
+        return False, (
+            f'{field_name} may only contain letters, numbers, spaces, and - / . _'
+        )
     return True, ''
+
+
+def validate_kra_pin(value: str) -> tuple[bool, str]:
+    """Tax ID / PIN (Kenya KRA or equivalent) — alphanumeric, not digits-only."""
+    return validate_optional_identifier(value, field_name='Tax PIN', max_length=20)
 
 
 def validate_national_id(value: str) -> tuple[bool, str]:
-    """Kenyan National ID: 7-8 digits (old) or 8 digits (new generation)."""
-    if not value or not value.strip():
-        return True, ''
-    value = value.strip()
-    if not value.isdigit():
-        return False, 'National ID must contain only digits.'
-    if len(value) not in (7, 8):
-        return False, 'National ID must be 7 or 8 digits.'
-    return True, ''
+    """National ID / NIN — alphanumeric (e.g. Uganda, Kenya, other countries)."""
+    return validate_optional_identifier(value, field_name='National ID', max_length=30)
 
 
 def validate_nssf_number(value: str) -> tuple[bool, str]:
-    """NSSF number: typically 7-9 digits."""
-    if not value or not value.strip():
-        return True, ''
-    value = value.strip()
-    if not value.isdigit():
-        return False, 'NSSF number must contain only digits.'
-    if len(value) < 7 or len(value) > 9:
-        return False, 'NSSF number must be 7 to 9 digits.'
-    return True, ''
+    """Social security / pension reference number."""
+    return validate_optional_identifier(value, field_name='NSSF number', max_length=30)
 
 
 def validate_nhif_shif_number(value: str) -> tuple[bool, str]:
-    """NHIF/SHIF number: typically 9 digits."""
-    if not value or not value.strip():
-        return True, ''
-    value = value.strip()
-    if not value.isdigit():
-        return False, 'NHIF/SHIF number must contain only digits.'
-    if len(value) != 9:
-        return False, 'NHIF/SHIF number must be 9 digits.'
-    return True, ''
+    """Health insurance / SHIF reference number."""
+    return validate_optional_identifier(value, field_name='NHIF/SHIF number', max_length=30)
 
 
 def normalize_phone_ke(value: str) -> str:

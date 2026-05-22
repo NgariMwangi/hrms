@@ -4,7 +4,7 @@ from wtforms import (
     StringField, DateField, SelectField, TextAreaField, SubmitField,
     FloatField, IntegerField, BooleanField,
 )
-from wtforms.validators import DataRequired, Optional, Email, ValidationError
+from wtforms.validators import DataRequired, Optional, Email, ValidationError, Length
 from datetime import date
 
 
@@ -15,20 +15,30 @@ def _coerce_optional_int(value):
     return int(value)
 
 
-def _validate_kra_pin(form, field):
+def _validate_optional_identifier(form, field, *, field_name: str, max_length: int):
     if field.data:
-        from app.utils.validators import validate_kra_pin
-        ok, msg = validate_kra_pin(field.data)
+        from app.utils.validators import validate_optional_identifier
+        ok, msg = validate_optional_identifier(
+            field.data, field_name=field_name, max_length=max_length
+        )
         if not ok:
             raise ValidationError(msg)
 
 
 def _validate_national_id(form, field):
-    if field.data:
-        from app.utils.validators import validate_national_id
-        ok, msg = validate_national_id(field.data)
-        if not ok:
-            raise ValidationError(msg)
+    _validate_optional_identifier(form, field, field_name='National ID', max_length=30)
+
+
+def _validate_kra_pin(form, field):
+    _validate_optional_identifier(form, field, field_name='Tax PIN', max_length=20)
+
+
+def _validate_nssf(form, field):
+    _validate_optional_identifier(form, field, field_name='NSSF number', max_length=30)
+
+
+def _validate_nhif(form, field):
+    _validate_optional_identifier(form, field, field_name='NHIF/SHIF number', max_length=30)
 
 
 def _validate_phone(form, field):
@@ -51,11 +61,11 @@ class EmployeeForm(FlaskForm):
         ('', '--'), ('Single', 'Single'), ('Married', 'Married'), ('Divorced', 'Divorced'), ('Widowed', 'Widowed')
     ], validators=[Optional()])
     nationality = StringField('Nationality', validators=[Optional()])
-    national_id = StringField('National ID', validators=[Optional(), _validate_national_id])
-    passport_number = StringField('Passport Number', validators=[Optional()])
-    kra_pin = StringField('KRA PIN', validators=[Optional()])
-    nssf_number = StringField('NSSF Number', validators=[Optional()])
-    nhif_number = StringField('NHIF/SHIF Number', validators=[Optional()])
+    national_id = StringField('National ID', validators=[Optional(), Length(max=30), _validate_national_id])
+    passport_number = StringField('Passport Number', validators=[Optional(), Length(max=50)])
+    kra_pin = StringField('KRA PIN', validators=[Optional(), Length(max=20), _validate_kra_pin])
+    nssf_number = StringField('NSSF Number', validators=[Optional(), Length(max=30), _validate_nssf])
+    nhif_number = StringField('NHIF/SHIF Number', validators=[Optional(), Length(max=30), _validate_nhif])
     email = StringField('Email', validators=[Optional(), Email()])
     secondary_email = StringField('Secondary Email', validators=[Optional(), Email()])
     phone = StringField('Phone', validators=[Optional(), _validate_phone])

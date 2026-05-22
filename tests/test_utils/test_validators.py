@@ -1,5 +1,4 @@
-"""Tests for Kenyan validators."""
-import pytest
+"""Tests for identifier and phone validators."""
 from app.utils.validators import (
     validate_kra_pin,
     validate_national_id,
@@ -9,26 +8,35 @@ from app.utils.validators import (
 )
 
 
-def test_validate_kra_pin_valid():
+def test_validate_kra_pin_alphanumeric():
     ok, msg = validate_kra_pin('A001234567P')
     assert ok is True
     assert msg == ''
 
 
-def test_validate_kra_pin_invalid_length():
-    ok, msg = validate_kra_pin('A00123456')
+def test_validate_kra_pin_rejects_too_long():
+    ok, msg = validate_kra_pin('A' * 25)
     assert ok is False
-    assert '10 characters' in msg
 
 
-def test_validate_national_id_valid():
+def test_validate_national_id_digits_ok():
     ok, msg = validate_national_id('12345678')
     assert ok is True
 
 
-def test_validate_national_id_invalid():
-    ok, msg = validate_national_id('12345')
+def test_validate_national_id_mixed_characters_ok():
+    ok, msg = validate_national_id('CM920941026QEK')
+    assert ok is True
+
+
+def test_validate_national_id_rejects_invalid_chars():
+    ok, msg = validate_national_id('ID#123')
     assert ok is False
+
+
+def test_validate_nhif_mixed_ok():
+    ok, msg = validate_nhif_shif_number('SHIF-UG-12345')
+    assert ok is True
 
 
 def test_normalize_phone_ke():

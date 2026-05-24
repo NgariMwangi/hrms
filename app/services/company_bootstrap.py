@@ -163,4 +163,60 @@ def bootstrap_company_defaults(company_id: int, country_code: str = 'KE') -> Non
                 )
             )
 
+    elif cc == 'UG':
+        # Uganda: PAYE (URA 2026 monthly resident bands), NSSF 5% / 10% on gross. No SHIF / housing levy.
+        eff_from = date(2026, 7, 1)
+        if not (
+            db.session.query(StatutoryRate)
+            .filter(
+                StatutoryRate.company_id == company_id,
+                StatutoryRate.country_code == cc,
+                StatutoryRate.code == 'NSSF_EMPLOYEE_PERCENT',
+                StatutoryRate.effective_from == eff_from,
+            )
+            .first()
+        ):
+            for code, value, desc in [
+                ('NSSF_EMPLOYEE_PERCENT', 5, 'NSSF employee contribution (% of gross)'),
+                ('NSSF_EMPLOYER_PERCENT', 10, 'NSSF employer contribution (% of gross)'),
+                ('PERSONAL_RELIEF', 0, 'Uganda monthly PAYE has no personal relief (set 0)'),
+            ]:
+                db.session.add(
+                    StatutoryRate(
+                        company_id=company_id,
+                        country_code=cc,
+                        code=code,
+                        effective_from=eff_from,
+                        value=value,
+                        description=desc,
+                    )
+                )
+
+        if not (
+            db.session.query(PayeBracket)
+            .filter(
+                PayeBracket.company_id == company_id,
+                PayeBracket.country_code == cc,
+                PayeBracket.effective_from == eff_from,
+            )
+            .first()
+        ):
+            for order, min_a, max_a, rate in [
+                (1, 0, 335000, 0),
+                (2, 335001, 410000, 10),
+                (3, 410001, 10000000, 20),
+                (4, 10000001, None, 30),
+            ]:
+                db.session.add(
+                    PayeBracket(
+                        company_id=company_id,
+                        country_code=cc,
+                        effective_from=eff_from,
+                        bracket_order=order,
+                        min_amount=min_a,
+                        max_amount=max_a,
+                        rate_percent=rate,
+                    )
+                )
+
     db.session.commit()

@@ -49,6 +49,48 @@ from sqlalchemy.orm import joinedload
 
 payroll_bp = Blueprint('payroll', __name__)
 
+
+def _july_gross_for_uganda_lst(
+    employee_id: int,
+    company_id: int,
+    pay_year: int,
+    pay_month: int,
+) -> Decimal | None:
+    """July gross used for LST annual band (Aug–Oct instalments). None if not found."""
+    if pay_month == 7:
+        return None
+    row = (
+        db.session.query(PayrollItem.gross_pay)
+        .join(PayrollRun, PayrollItem.payroll_run_id == PayrollRun.id)
+        .filter(
+            PayrollItem.employee_id == employee_id,
+            PayrollRun.company_id == company_id,
+            PayrollRun.pay_year == pay_year,
+            PayrollRun.pay_month == 7,
+            PayrollRun.country_code == 'UG',
+        )
+        .order_by(PayrollItem.id.desc())
+        .first()
+    )
+    if row and row[0] is not None:
+        return Decimal(str(row[0]))
+    return None
+
+
+def _payroll_calc_kwargs(run_obj, run_cc: str, employee_id: int) -> dict:
+    if run_cc != 'UG':
+        return {}
+    return {
+        'pay_month': run_obj.pay_month,
+        'pay_year': run_obj.pay_year,
+        'july_gross_for_lst': _july_gross_for_uganda_lst(
+            employee_id,
+            run_obj.company_id,
+            run_obj.pay_year,
+            run_obj.pay_month,
+        ),
+    }
+
 _EMPLOYEE_PAYSLIP_RUN_STATUSES = ('approved', 'finance_reviewed', 'paid')
 
 
@@ -353,6 +395,7 @@ def run_calculate(id):
                 statutory_company_id=emp.company_id,
                 statutory_country_code=run_cc,
                 overtime_days=overtime_days,
+                **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
             )
         else:
             calc = calculate_employee_payroll(
@@ -371,6 +414,7 @@ def run_calculate(id):
                 statutory_company_id=emp.company_id,
                 statutory_country_code=run_cc,
                 overtime_days=overtime_days,
+                **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
             )
         for ot_r in ot_rows:
             ot_r.applied_to_payroll_run_id = run_obj.id
@@ -573,6 +617,7 @@ def run_calculate(id):
                     statutory_company_id=emp.company_id,
                     statutory_country_code=run_cc,
                     overtime_days=overtime_days,
+                    **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
                 )
             else:
                 calc = calculate_employee_payroll(
@@ -591,6 +636,7 @@ def run_calculate(id):
                     statutory_company_id=emp.company_id,
                     statutory_country_code=run_cc,
                     overtime_days=overtime_days,
+                    **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
                 )
             for ot_r in ot_rows:
                 ot_r.applied_to_payroll_run_id = run_obj.id

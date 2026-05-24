@@ -1,109 +1,41 @@
 """
-Core payroll calculation engine for Kenya.
-Uses statutory_service for PAYE, NSSF, SHIF, Housing Levy.
-Produces gross, taxable pay, deductions, net. Optionally pro-rata for mid-month join/exit.
-Optional pension deductions are employee-side only and do not affect employer contribution here.
-Net pay includes statutory deductions plus pension deductions and other deductions.
+Payroll calculation router and Kenya engine.
+
+Kenya: PAYE after NSSF, SHIF, Housing Levy on gross; pension cap for PAYE.
+Uganda: see uganda_payroll_engine.py (PAYE on gross − LST, NSSF on gross, LST Jul–Oct).
 """
 from datetime import date
 from decimal import Decimal
+
+from app.services.deduction_service import get_recurring_deduction_line_items
+from app.services.payroll_common import (
+    PRORATA_STANDARD_MONTH_DAYS,
+    build_gross_earnings,
+    decimalize,
+    employment_partial_month_days,
+    pro_rata_calendar_days_or_none,
+    pro_rata_factor,
+)
 from app.services.statutory_service import (
-    get_pensionable_pay,
-    calculate_nssf,
+    calculate_housing_levy,
     calculate_nssf_with_breakdown,
     calculate_paye,
     calculate_shif,
-    calculate_housing_levy,
 )
-from app.services.deduction_service import get_recurring_deduction_line_items
 
 KENYA_PENSION_TAX_DEDUCTIBLE_CAP = Decimal('30000')
-# Partial-month basic (and allowance lines using this factor): (monthly_basic / 30) * calendar_days_worked
-PRORATA_STANDARD_MONTH_DAYS = 30
-
-def decimalize(value) -> Decimal:
-    """Ensure value is Decimal."""
-    if value is None:
-        return Decimal('0')
-    return Decimal(str(value))
 
 
 def get_working_days_in_month(year: int, month: int) -> int:
-    """Working days in month (simplified: exclude weekends only)."""
     from calendar import monthrange
+
     wd = 0
     _, last = monthrange(year, month)
     for d in range(1, last + 1):
         dte = date(year, month, d)
-        if dte.weekday() < 5:  # Mon=0 .. Fri=4
+        if dte.weekday() < 5:
             wd += 1
     return wd
-
-
-def employment_partial_month_days(
-    hire_date: date | None,
-    termination_date: date | None,
-    pay_month: int,
-    pay_year: int,
-) -> tuple[int, bool]:
-    """
-    Calendar days the employee is in employment during the pay month, and whether the month is partial.
-
-    Returns (days_worked_inclusive, is_partial). Full month => (days_in_month, False).
-    """
-    from calendar import monthrange
-
-    month_start = date(pay_year, pay_month, 1)
-    _, last_day = monthrange(pay_year, pay_month)
-    month_end = date(pay_year, pay_month, last_day)
-    work_start = month_start
-    work_end = month_end
-    if hire_date and hire_date > month_start:
-        work_start = hire_date
-    if termination_date and termination_date < month_end:
-        work_end = termination_date
-    if work_start > work_end:
-        return 0, True
-    days_worked = (work_end - work_start).days + 1
-    partial_month = (work_start > month_start) or (work_end < month_end)
-    return days_worked, partial_month
-
-
-def pro_rata_calendar_days_or_none(
-    hire_date: date | None,
-    termination_date: date | None,
-    pay_month: int,
-    pay_year: int,
-) -> int | None:
-    """If partial month, inclusive calendar days worked; if full month, None (use full monthly amounts)."""
-    days_worked, partial = employment_partial_month_days(
-        hire_date, termination_date, pay_month, pay_year
-    )
-    if not partial:
-        return None
-    return days_worked
-
-
-def pro_rata_factor(
-    hire_date: date | None,
-    termination_date: date | None,
-    pay_month: int,
-    pay_year: int,
-) -> Decimal:
-    """
-    Multiplier for legacy callers: 1 for a full month, otherwise days_worked / 30 (unrounded Decimal).
-
-    Prorated earnings use (monthly_amount / 30) * days_worked explicitly; see calculate_employee_payroll(..., pro_rata_calendar_days=...).
-    """
-    days_worked, partial = employment_partial_month_days(
-        hire_date, termination_date, pay_month, pay_year
-    )
-    if not partial:
-        return Decimal('1')
-    denom = Decimal(PRORATA_STANDARD_MONTH_DAYS)
-    if denom <= 0:
-        return Decimal('0')
-    return Decimal(days_worked) / denom
 
 
 def calculate_employee_payroll(
@@ -125,21 +57,83 @@ def calculate_employee_payroll(
     statutory_company_id: int | None = None,
     statutory_country_code: str = 'KE',
     overtime_days: Decimal | None = None,
+    pay_month: int | None = None,
+    pay_year: int | None = None,
+    july_gross_for_lst: Decimal | None = None,
 ) -> dict:
     """
-    Calculate single employee's pay for the month.
-    If allowance_breakdown is provided (list of dicts with amount, is_taxable, is_pensionable, code, name),
-    it is used instead of house/transport/meal/other. Otherwise legacy columns are used.
-    Returns dict: gross_pay, pensionable_pay, ..., earnings_breakdown, deductions_breakdown.
-
-    employee_id: if set, active recurring EmployeeDeduction rows are applied (see deduction_service).
-    manual_deduction_lines: optional list of dicts {code, name, amount (Decimal)} from draft payroll run overrides.
-    other_deductions: legacy fixed amount added to the same bucket (rarely used).
-    overtime_days: optional approved overtime days; amount = (monthly_gross * 12 / 365) * days, added to gross
-        and pensionable base for statutory calculations.
-    pro_rata_calendar_days: if set, partial-month earnings use (monthly_amount / 30) * this many calendar days
-        instead of monthly_amount * pro_rata_factor (avoids rounding the factor before multiplying).
+    Calculate single employee pay for the month. Routes to Uganda engine when country is UG.
     """
+    scc = (statutory_country_code or 'KE').upper()[:2]
+    if scc == 'UG':
+        from app.services.uganda_payroll_engine import calculate_employee_payroll_uganda
+
+        return calculate_employee_payroll_uganda(
+            basic_salary=basic_salary,
+            house_allowance=house_allowance,
+            transport_allowance=transport_allowance,
+            meal_allowance=meal_allowance,
+            other_allowances=other_allowances,
+            pension_employee_percent=pension_employee_percent,
+            pension_employee_fixed_amount=pension_employee_fixed_amount,
+            pay_date=pay_date,
+            pro_rata_factor=pro_rata_factor,
+            pro_rata_calendar_days=pro_rata_calendar_days,
+            other_earnings=other_earnings,
+            other_deductions=other_deductions,
+            allowance_breakdown=allowance_breakdown,
+            employee_id=employee_id,
+            manual_deduction_lines=manual_deduction_lines,
+            statutory_company_id=statutory_company_id,
+            statutory_country_code=scc,
+            overtime_days=overtime_days,
+            pay_month=pay_month,
+            pay_year=pay_year,
+            july_gross_for_lst=july_gross_for_lst,
+        )
+
+    return _calculate_employee_payroll_kenya(
+        basic_salary=basic_salary,
+        house_allowance=house_allowance,
+        transport_allowance=transport_allowance,
+        meal_allowance=meal_allowance,
+        other_allowances=other_allowances,
+        pension_employee_percent=pension_employee_percent,
+        pension_employee_fixed_amount=pension_employee_fixed_amount,
+        pay_date=pay_date,
+        pro_rata_factor=pro_rata_factor,
+        pro_rata_calendar_days=pro_rata_calendar_days,
+        other_earnings=other_earnings,
+        other_deductions=other_deductions,
+        allowance_breakdown=allowance_breakdown,
+        employee_id=employee_id,
+        manual_deduction_lines=manual_deduction_lines,
+        statutory_company_id=statutory_company_id,
+        statutory_country_code=scc,
+        overtime_days=overtime_days,
+    )
+
+
+def _calculate_employee_payroll_kenya(
+    basic_salary: Decimal,
+    house_allowance: Decimal = None,
+    transport_allowance: Decimal = None,
+    meal_allowance: Decimal = None,
+    other_allowances: Decimal = None,
+    pension_employee_percent: Decimal = None,
+    pension_employee_fixed_amount: Decimal = None,
+    pay_date: date = None,
+    pro_rata_factor: Decimal = None,
+    pro_rata_calendar_days: int | None = None,
+    other_earnings: Decimal = None,
+    other_deductions: Decimal = None,
+    allowance_breakdown: list = None,
+    employee_id: int = None,
+    manual_deduction_lines: list = None,
+    statutory_company_id: int | None = None,
+    statutory_country_code: str = 'KE',
+    overtime_days: Decimal | None = None,
+) -> dict:
     pay_date = pay_date or date.today()
     scid = statutory_company_id
     scc = (statutory_country_code or 'KE').upper()[:2]
@@ -147,70 +141,18 @@ def calculate_employee_payroll(
     pr_days = pro_rata_calendar_days
     denom = Decimal(PRORATA_STANDARD_MONTH_DAYS)
 
-    def prorate_monthly(monthly_val: Decimal) -> Decimal:
-        """Full month: monthly * factor (factor 1). Partial: (monthly / 30) * calendar days worked."""
-        v = decimalize(monthly_val)
-        if pr_days is not None:
-            return (v / denom) * Decimal(pr_days)
-        return v * factor
-
-    other_earn = decimalize(other_earnings)
-    legacy_other = decimalize(other_deductions)
-    pension_pct = decimalize(pension_employee_percent)
-    pension_fixed = decimalize(pension_employee_fixed_amount)
-    basic = prorate_monthly(basic_salary)
-
-    if allowance_breakdown:
-        total_allowances = Decimal('0')
-        pensionable_allowances = Decimal('0')
-        earnings_breakdown = [{'code': 'BASIC', 'name': 'Basic Salary', 'amount': float(basic)}]
-        for a in allowance_breakdown:
-            amt = prorate_monthly(decimalize(a.get('amount', 0)))
-            total_allowances += amt
-            if a.get('is_pensionable'):
-                pensionable_allowances += amt
-            earnings_breakdown.append({
-                'code': a.get('code', 'ALLOW'),
-                'name': a.get('name', 'Allowance'),
-                'amount': float(amt),
-            })
-        if pr_days is not None:
-            other_earn_adj = prorate_monthly(other_earn)
-        else:
-            other_earn_adj = other_earn
-        earnings_breakdown.append({'code': 'OTHER_EARN', 'name': 'Other Earnings', 'amount': float(other_earn_adj)})
-        gross_pay = (basic + total_allowances + other_earn_adj).quantize(Decimal('0.01'))
-        pensionable = get_pensionable_pay(basic, pensionable_allowances, Decimal('0'))
-    else:
-        transport = decimalize(transport_allowance)
-        meal = decimalize(meal_allowance)
-        other_allow = decimalize(other_allowances)
-        house = decimalize(house_allowance)
-        house = prorate_monthly(house)
-        transport = prorate_monthly(transport)
-        meal = prorate_monthly(meal)
-        other_allow = prorate_monthly(other_allow)
-        other_earn_adj = prorate_monthly(other_earn)
-        gross_pay = (basic + house + transport + meal + other_allow + other_earn_adj).quantize(Decimal('0.01'))
-        pensionable = get_pensionable_pay(basic, house, Decimal('0'))
-        earnings_breakdown = [
-            {'code': 'BASIC', 'name': 'Basic Salary', 'amount': float(basic)},
-            {'code': 'HOUSE', 'name': 'House Allowance', 'amount': float(house)},
-            {'code': 'TRANSPORT', 'name': 'Transport Allowance', 'amount': float(transport)},
-            {'code': 'MEAL', 'name': 'Meal Allowance', 'amount': float(meal)},
-            {'code': 'OTHER_ALLOW', 'name': 'Other Allowances', 'amount': float(other_allow + other_earn_adj)},
-        ]
-
-    ot_days = decimalize(overtime_days) if overtime_days is not None else Decimal('0')
-    ot_amt = Decimal('0')
-    if ot_days > 0:
-        per_day = (gross_pay * Decimal('12')) / Decimal('365')
-        ot_amt = (per_day * ot_days).quantize(Decimal('0.01'))
-        earnings_breakdown.append(
-            {'code': 'OVERTIME', 'name': 'Overtime compensation', 'amount': float(ot_amt)}
-        )
-        gross_pay = (gross_pay + ot_amt).quantize(Decimal('0.01'))
-        pensionable = (pensionable + ot_amt).quantize(Decimal('0.01'))
+    gross_pay, pensionable, earnings_breakdown = build_gross_earnings(
+        basic_salary=basic_salary,
+        house_allowance=house_allowance,
+        transport_allowance=transport_allowance,
+        meal_allowance=meal_allowance,
+        other_allowances=other_allowances,
+        pro_rata_factor=factor,
+        pro_rata_calendar_days=pr_days,
+        other_earnings=other_earnings,
+        allowance_breakdown=allowance_breakdown,
+        overtime_days=overtime_days,
+    )
 
     if scid is None:
         raise ValueError('statutory_company_id is required for payroll calculation')
@@ -222,6 +164,8 @@ def calculate_employee_payroll(
 
     shif = calculate_shif(gross_pay, pay_date, scid, scc)
     housing_levy = calculate_housing_levy(gross_pay, pay_date, scid, scc)
+    pension_pct = decimalize(pension_employee_percent)
+    pension_fixed = decimalize(pension_employee_fixed_amount)
     pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
     if pension_fixed:
         if pr_days is not None:
@@ -236,21 +180,25 @@ def calculate_employee_payroll(
     pension_tax_deductible = pension_total_for_month
     if scc == 'KE':
         pension_tax_deductible = min(pension_total_for_month, KENYA_PENSION_TAX_DEDUCTIBLE_CAP)
-    # PAYE taxable pay: gross less statutory employee deductions and tax-deductible pension (capped in KE).
-    taxable_pay = (gross_pay - nssf_emp - shif - housing_levy - pension_tax_deductible).quantize(Decimal('0.01'))
+    taxable_pay = (gross_pay - nssf_emp - shif - housing_levy - pension_tax_deductible).quantize(
+        Decimal('0.01')
+    )
     if taxable_pay < 0:
         taxable_pay = Decimal('0')
     paye = calculate_paye(taxable_pay, pay_date, scid, scc)
     recurring_lines = (
-        get_recurring_deduction_line_items(employee_id, pay_date, gross_pay, basic)
+        get_recurring_deduction_line_items(employee_id, pay_date, gross_pay, decimalize(basic_salary))
         if employee_id
         else []
     )
     manual_lines = list(manual_deduction_lines or [])
     extra_lines = recurring_lines + manual_lines
+    legacy_other = decimalize(other_deductions)
     other_ded = legacy_other + sum((x['amount'] for x in extra_lines), start=Decimal('0'))
     other_ded = other_ded.quantize(Decimal('0.01'))
-    total_deductions = nssf_emp + shif + housing_levy + paye + pension_deduction + pension_fixed_deduction + other_ded
+    total_deductions = (
+        nssf_emp + shif + housing_levy + paye + pension_deduction + pension_fixed_deduction + other_ded
+    )
     net_pay = (gross_pay - total_deductions).quantize(Decimal('0.01'))
     deductions_breakdown = []
     for row in nssf_breakdown:
@@ -295,4 +243,5 @@ def calculate_employee_payroll(
         'net_pay': net_pay,
         'earnings_breakdown': earnings_breakdown,
         'deductions_breakdown': deductions_breakdown,
+        'payroll_engine': 'kenya',
     }

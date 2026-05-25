@@ -85,15 +85,16 @@ def validate_phone(value: str, country_code: str | None = None) -> tuple[bool, s
     """Validate phone number for the given country."""
     if not value or not value.strip():
         return True, ''
+    cleaned = re.sub(r'[\s\-]+', '', value.strip())
+    if cleaned.startswith('+') and len(cleaned) >= 10:
+        return True, ''
     normalized = normalize_phone(value, country_code)
     cc = (country_code or 'KE').upper()[:2]
     cfg = COUNTRY_PHONE_CONFIG.get(cc)
     if cfg:
-        expected_len = len(cfg['code']) + cfg['local_len'] + 1  # +code + local
+        expected_len = len(cfg['code']) + cfg['local_len'] + 1
         if len(normalized) < expected_len:
             return False, f'Invalid {cfg["label"]} phone number.'
-        if not normalized.startswith('+' + cfg['code']):
-            return False, f'Use format: 0XXX XXX XXX or +{cfg["code"]} XXX XXX XXX.'
     else:
         if len(normalized) < 10:
             return False, 'Phone number too short.'

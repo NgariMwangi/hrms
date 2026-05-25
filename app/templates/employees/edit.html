@@ -5,6 +5,18 @@
 {% if not form.branch_id.choices %}
 <div class="alert alert-warning mb-3">No branches exist for this company. Add one under <strong>Organization → Branches</strong> before you can save this profile.</div>
 {% endif %}
+{% if form.errors %}
+<div class="alert alert-danger mb-3">
+    <strong>Please fix the following errors:</strong>
+    <ul class="mb-0 mt-1">
+    {% for field_name, errors in form.errors.items() %}
+        {% for err in errors %}
+        <li>{{ form[field_name].label.text if field_name in form else field_name }}: {{ err }}</li>
+        {% endfor %}
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
 <form method="post" action="{{ url_for('employees.edit', id=employee.id) }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">

@@ -45,12 +45,16 @@ def _validate_phone(form, field):
     if field.data:
         from app.utils.validators import validate_phone
         country = None
-        branch_id = getattr(form, 'branch_id', None)
-        if branch_id and branch_id.data:
-            from app.models.company import Branch
-            branch = Branch.query.get(branch_id.data)
-            if branch:
-                country = branch.country_code
+        branch_id_field = getattr(form, 'branch_id', None)
+        if branch_id_field and branch_id_field.data:
+            try:
+                from app.extensions import db
+                from app.models.company import Branch
+                branch = db.session.get(Branch, int(branch_id_field.data))
+                if branch:
+                    country = branch.country_code
+            except (ValueError, TypeError):
+                pass
         ok, msg = validate_phone(field.data, country)
         if not ok:
             raise ValidationError(msg)

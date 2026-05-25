@@ -103,12 +103,15 @@ def list():
         .filter(Employee.company_id == cid)
     )
     department_id = request.args.get('department_id', type=int)
+    branch_id = request.args.get('branch_id', type=int)
     job_title_id = request.args.get('job_title_id', type=int)
     status = request.args.get('status')
     directors_only = request.args.get('directors_only') == '1'
     search = request.args.get('q', '').strip()
     if department_id:
         q = q.filter(Employee.department_id == department_id)
+    if branch_id:
+        q = q.filter(Employee.branch_id == branch_id)
     if job_title_id:
         q = q.filter(Employee.job_title_id == job_title_id)
     if status:
@@ -131,10 +134,14 @@ def list():
     departments = (
         db.session.query(Department).filter(Department.company_id == cid).order_by(Department.name).all()
     )
+    branches = (
+        db.session.query(Branch).filter(Branch.company_id == cid).order_by(Branch.name).all()
+    )
     return render_template(
         'employees/list.html',
         employees=employees,
         departments=departments,
+        branches=branches,
         director_title_ids=director_title_ids,
     )
 
@@ -1014,10 +1021,13 @@ def employee_deductions(id):
                     db.session.commit()
                     flash(f'Deduction will stop after payroll {last_year}-{last_month:02d}.', 'success')
         return redirect(url_for('employees.employee_deductions', id=id))
+    from app.utils.currency import currency_for_employee
+
     return render_template(
         'employees/deductions.html',
         employee=emp,
         assignments=assignments,
+        currency_code=currency_for_employee(emp),
     )
 
 
@@ -1224,11 +1234,14 @@ def employee_benefits(id):
                     db.session.commit()
                     flash('Benefit removed.', 'success')
         return redirect(url_for('employees.employee_benefits', id=id))
+    from app.utils.currency import currency_for_employee
+
     return render_template(
         'employees/benefits.html',
         employee=emp,
         assignments=assignments,
         today=date.today(),
+        currency_code=currency_for_employee(emp),
     )
 
 

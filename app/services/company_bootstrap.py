@@ -165,7 +165,8 @@ def bootstrap_company_defaults(company_id: int, country_code: str = 'KE') -> Non
 
     elif cc == 'UG':
         # Uganda: PAYE (URA 2026 monthly resident bands), NSSF 5% / 10% on gross. No SHIF / housing levy.
-        eff_from = date(2026, 7, 1)
+        # Use early effective_from so payroll for any month picks up the brackets.
+        eff_from = date(2024, 1, 1)
         if not (
             db.session.query(StatutoryRate)
             .filter(

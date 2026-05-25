@@ -21,7 +21,7 @@
                 <input type="text" name="title" class="form-control" required maxlength="200" placeholder="e.g. Airtime reimbursement"/>
             </div>
             <div class="col-md-2">
-                <label class="form-label">Amount (KES)</label>
+                <label class="form-label">Amount ({{ currency_code }})</label>
                 <input type="number" name="amount" class="form-control" step="0.01" min="0" required value="0"/>
             </div>
             <div class="col-md-2">
@@ -62,7 +62,7 @@
                 <thead>
                     <tr>
                         <th>Title</th>
-                        <th>Amount (KES)</th>
+                        <th>Amount ({{ currency_code }})</th>
                         <th>Frequency</th>
                         <th>Payroll period</th>
                         <th>Notes</th>

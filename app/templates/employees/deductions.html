@@ -24,13 +24,13 @@
             <div class="col-md-6">
                 <label class="form-label">Calculation</label>
                 <select name="calculation_mode" class="form-select" id="calcMode">
-                    <option value="fixed">Fixed amount (KES / month)</option>
+                    <option value="fixed">Fixed amount ({{ currency_code }} / month)</option>
                     <option value="percent_basic">% of basic salary</option>
                     <option value="percent_gross">% of gross pay</option>
                 </select>
             </div>
             <div class="col-md-2" id="grpAmount">
-                <label class="form-label">Amount (KES)</label>
+                <label class="form-label">Amount ({{ currency_code }})</label>
                 <input type="number" name="amount" class="form-control" step="0.01" min="0" value="0"/>
             </div>
             <div class="col-md-2" id="grpRate" style="display:none;">

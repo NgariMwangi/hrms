@@ -43,8 +43,15 @@ def _validate_nhif(form, field):
 
 def _validate_phone(form, field):
     if field.data:
-        from app.utils.validators import validate_phone_ke
-        ok, msg = validate_phone_ke(field.data)
+        from app.utils.validators import validate_phone
+        country = None
+        branch_id = getattr(form, 'branch_id', None)
+        if branch_id and branch_id.data:
+            from app.models.company import Branch
+            branch = Branch.query.get(branch_id.data)
+            if branch:
+                country = branch.country_code
+        ok, msg = validate_phone(field.data, country)
         if not ok:
             raise ValidationError(msg)
 

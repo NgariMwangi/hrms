@@ -28,7 +28,7 @@ from app.services.employee_history_service import (
     record_initial_assignment,
     sync_assignment_history_after_edit,
 )
-from app.utils.validators import normalize_phone_ke
+from app.utils.validators import normalize_phone
 
 try:
     import cloudinary
@@ -441,9 +441,9 @@ def create():
                 nhif_number=form.nhif_number.data or None,
                 email=form.email.data or None,
                 secondary_email=form.secondary_email.data or None,
-                phone=normalize_phone_ke(form.phone.data) if form.phone.data else None,
-                secondary_phone=normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None,
-                phone_alt=normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None,
+                phone=normalize_phone(form.phone.data, branch.country_code) if form.phone.data else None,
+                secondary_phone=normalize_phone(form.secondary_phone.data, branch.country_code) if form.secondary_phone.data else None,
+                phone_alt=normalize_phone(form.secondary_phone.data, branch.country_code) if form.secondary_phone.data else None,
                 address=form.address.data or None,
                 postal_address=form.postal_address.data or None,
                 emergency_contact_name=form.emergency_contact_name.data or None,
@@ -554,8 +554,9 @@ def _save_employee_self_contact(emp: Employee, user: User, form: EmployeeSelfCon
     user.email = (form.login_email.data or '').strip().lower()
     emp.email = (form.email.data or '').strip() or None
     emp.secondary_email = (form.secondary_email.data or '').strip() or None
-    phone = normalize_phone_ke(form.phone.data) if form.phone.data else None
-    secondary_phone = normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None
+    cc = emp.branch.country_code if emp.branch else None
+    phone = normalize_phone(form.phone.data, cc) if form.phone.data else None
+    secondary_phone = normalize_phone(form.secondary_phone.data, cc) if form.secondary_phone.data else None
     emp.phone = phone
     emp.secondary_phone = secondary_phone
     emp.phone_alt = secondary_phone
@@ -563,7 +564,7 @@ def _save_employee_self_contact(emp: Employee, user: User, form: EmployeeSelfCon
     emp.postal_address = (form.postal_address.data or '').strip() or None
     emp.emergency_contact_name = (form.emergency_contact_name.data or '').strip() or None
     emp.emergency_contact_phone = (
-        normalize_phone_ke(form.emergency_contact_phone.data)
+        normalize_phone(form.emergency_contact_phone.data, cc)
         if form.emergency_contact_phone.data
         else None
     )
@@ -726,9 +727,9 @@ def edit(id):
             emp.nhif_number = form.nhif_number.data or None
             emp.email = form.email.data or None
             emp.secondary_email = form.secondary_email.data or None
-            emp.phone = normalize_phone_ke(form.phone.data) if form.phone.data else None
-            emp.secondary_phone = normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None
-            emp.phone_alt = normalize_phone_ke(form.secondary_phone.data) if form.secondary_phone.data else None
+            emp.phone = normalize_phone(form.phone.data, branch.country_code) if form.phone.data else None
+            emp.secondary_phone = normalize_phone(form.secondary_phone.data, branch.country_code) if form.secondary_phone.data else None
+            emp.phone_alt = normalize_phone(form.secondary_phone.data, branch.country_code) if form.secondary_phone.data else None
             emp.address = form.address.data or None
             emp.postal_address = form.postal_address.data or None
             emp.emergency_contact_name = form.emergency_contact_name.data or None

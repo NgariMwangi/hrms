@@ -26,7 +26,7 @@
                 <div class="border rounded p-3 h-100">
                     <div class="small text-muted">Net pay · {{ branch.country_code }} <span class="badge bg-secondary bg-opacity-75">{{ branch.status }}</span></div>
                     <div class="h6 mb-0">{{ branch.currency }} {{ "{:,.2f}".format(branch.net|float) }}</div>
-                    <div class="small text-muted mt-1">{{ branch.employees }} employee{{ 's' if branch.employees != 1 else '' }}</div>
+                    <div class="small text-muted mt-1">{{ branch.staff }} staff · {{ branch.consultants }} consultant{{ 's' if branch.consultants != 1 else '' }}</div>
                 </div>
             </div>
             {% endfor %}

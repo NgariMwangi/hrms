@@ -9,6 +9,7 @@ from app.models.employee import Employee
 from app.models.leave import LeaveRequest
 from app.models.overtime import OvertimeRequest
 from app.models.payroll import PayrollRun, PayrollItem
+from app.models.consultant import ConsultantPayrollItem
 from app.utils.tenant import require_company_id
 from app.utils.navigation import is_employee_self_service_user, redirect_to_user_home
 
@@ -211,7 +212,7 @@ def index():
                 .all()
             )
             for run in runs_for_period:
-                net_sum, emp_count = (
+                staff_net, staff_count = (
                     db.session.query(
                         func.coalesce(func.sum(PayrollItem.net_pay), 0),
                         func.count(PayrollItem.id),
@@ -219,11 +220,20 @@ def index():
                     .filter(PayrollItem.payroll_run_id == run.id)
                     .one()
                 )
+                consultant_net, consultant_count = (
+                    db.session.query(
+                        func.coalesce(func.sum(ConsultantPayrollItem.net_pay), 0),
+                        func.count(ConsultantPayrollItem.id),
+                    )
+                    .filter(ConsultantPayrollItem.payroll_run_id == run.id)
+                    .one()
+                )
                 payroll_by_branch.append({
                     'country_code': run.country_code or 'KE',
                     'currency': currency_for_country(run.country_code),
-                    'net': net_sum,
-                    'employees': emp_count,
+                    'net': staff_net + consultant_net,
+                    'staff': staff_count,
+                    'consultants': consultant_count,
                     'status': run.status,
                 })
         executive_summary = {

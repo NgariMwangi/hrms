@@ -134,68 +134,64 @@ def employee_list():
 @login_required
 @permission_required('view_reports')
 def employee_list_csv():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment
+
     employees = _employee_list_query().all()
-    si = StringIO()
-    w = csv.writer(si)
-    w.writerow(
-        [
-            'employee_number',
-            'full_name',
-            'email',
-            'phone',
-            'branch',
-            'department',
-            'job_title',
-            'status',
-            'hire_date',
-            'kra_pin',
-            'nssf_number',
-            'shif_nhif_number',
-            'bank_name',
-            'bank_branch',
-            'bank_account_number',
-            'bank_code',
-            'swift_code',
-        ]
-    )
-    def _text(val):
-        """Force Excel to treat value as text by wrapping in ="..."."""
-        v = (val or '').strip()
-        return f'="{v}"' if v else ''
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Employee List'
+
+    headers = [
+        'Employee No.', 'Full Name', 'Email', 'Phone', 'Branch',
+        'Department', 'Job Title', 'Status', 'Hire Date',
+        'KRA/TIN', 'NSSF', 'SHIF/NHIF',
+        'Bank Name', 'Bank Branch', 'Account Number', 'Bank Code', 'SWIFT Code',
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
 
     for e in employees:
-        dept = e.department.name if e.department else ''
-        jt = e.job_title.name if e.job_title else ''
-        branch_name = e.branch.name if e.branch else ''
-        w.writerow(
-            [
-                e.employee_number,
-                e.full_name,
-                (e.email or '').strip(),
-                _text(e.phone),
-                branch_name,
-                dept,
-                jt,
-                e.status or '',
-                e.hire_date.isoformat() if e.hire_date else '',
-                _text(e.kra_pin),
-                _text(e.nssf_number),
-                _text(e.nhif_number),
-                (e.bank_name or '').strip(),
-                (e.bank_branch or '').strip(),
-                _text(e.bank_account_number),
-                _text(e.bank_code),
-                (e.swift_code or '').strip(),
-            ]
-        )
+        ws.append([
+            e.employee_number or '',
+            e.full_name,
+            (e.email or '').strip(),
+            (e.phone or '').strip(),
+            e.branch.name if e.branch else '',
+            e.department.name if e.department else '',
+            e.job_title.name if e.job_title else '',
+            e.status or '',
+            e.hire_date.isoformat() if e.hire_date else '',
+            (e.kra_pin or '').strip(),
+            (e.nssf_number or '').strip(),
+            (e.nhif_number or '').strip(),
+            (e.bank_name or '').strip(),
+            (e.bank_branch or '').strip(),
+            (e.bank_account_number or '').strip(),
+            (e.bank_code or '').strip(),
+            (e.swift_code or '').strip(),
+        ])
+
+    ws.freeze_panes = 'C2'
+
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_len + 2, 30)
+
     out = BytesIO()
-    out.write(si.getvalue().encode('utf-8-sig'))
+    wb.save(out)
     out.seek(0)
     return send_file(
         out,
         as_attachment=True,
-        download_name='employee-list.csv',
-        mimetype='text/csv; charset=utf-8',
+        download_name='employee-list.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
 
 

@@ -9,11 +9,11 @@
     </div>
     <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-primary" href="{{ url_for('reports.employee_list_csv', **request.args) }}">
-            <i class="bi bi-download me-1"></i> Download Current View
+            <i class="bi bi-file-earmark-excel me-1"></i> Download Current View
         </a>
         <div class="btn-group">
             <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="bi bi-download me-1"></i> Download by Branch
+                <i class="bi bi-file-earmark-excel me-1"></i> Download by Branch
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item" href="{{ url_for('reports.employee_list_csv') }}"><strong>All branches</strong></a></li>

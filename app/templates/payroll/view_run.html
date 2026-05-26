@@ -125,13 +125,13 @@
         {% for item in items %}
         <tr>
             <td>{{ item.employee.full_name if item.employee else '-' }}</td>
-            <td>{{ item.gross_pay|fmt_money(run_currency) }}</td>
-            <td>{{ item.paye|fmt_money(run_currency) }}</td>
-            <td>{{ item.nssf_employee|fmt_money(run_currency) }}</td>
-            <td>{{ item.shif|fmt_money(run_currency) }}</td>
-            <td>{{ item.housing_levy|fmt_money(run_currency) }}</td>
-            <td>{{ item.other_deductions|fmt_money(run_currency) }}</td>
-            <td>{{ item.net_pay|fmt_money(run_currency) }}</td>
+            <td>{{ "{:,.2f}".format(item.gross_pay|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.paye|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.nssf_employee|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.shif|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.housing_levy|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.other_deductions|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.net_pay|float) }}</td>
             <td><a href="{{ url_for('payroll.view_payslip', run_id=run.id, employee_id=item.employee_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
         </tr>
         {% else %}
@@ -153,9 +153,9 @@
         {% for item in consultant_items %}
         <tr>
             <td>{{ item.consultant.full_name if item.consultant else '-' }}</td>
-            <td>{{ item.gross_pay|fmt_money(run_currency) }}</td>
-            <td>{{ item.withholding_tax|fmt_money(run_currency) }}</td>
-            <td>{{ item.net_pay|fmt_money(run_currency) }}</td>
+            <td>{{ "{:,.2f}".format(item.gross_pay|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.withholding_tax|float) }}</td>
+            <td>{{ "{:,.2f}".format(item.net_pay|float) }}</td>
             <td><a href="{{ url_for('payroll.view_consultant_payslip', run_id=run.id, consultant_id=item.consultant_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
         </tr>
         {% else %}

@@ -38,7 +38,7 @@ def index():
 
 
 def _employee_list_query():
-    """Build filtered Employee query with department/job_title loaded."""
+    """Build filtered Employee query with department/job_title/branch loaded."""
     cid = require_company_id()
     q = (
         db.session.query(Employee)
@@ -46,15 +46,19 @@ def _employee_list_query():
         .options(
             joinedload(Employee.department),
             joinedload(Employee.job_title),
+            joinedload(Employee.branch),
         )
     )
     status = request.args.get('status', '').strip()
     department_id = request.args.get('department_id', type=int)
+    branch_id = request.args.get('branch_id', type=int)
     search = request.args.get('q', '').strip()
     if status:
         q = q.filter(Employee.status == status)
     if department_id:
         q = q.filter(Employee.department_id == department_id)
+    if branch_id:
+        q = q.filter(Employee.branch_id == branch_id)
     if search:
         like = f'%{search}%'
         q = q.filter(
@@ -110,10 +114,19 @@ def employee_list():
         .order_by(Department.name)
         .all()
     )
+    from app.models.company import Branch
+
+    branches = (
+        db.session.query(Branch)
+        .filter(Branch.company_id == cid)
+        .order_by(Branch.name)
+        .all()
+    )
     return render_template(
         'reports/employee_list.html',
         employees=employees,
         departments=departments,
+        branches=branches,
     )
 
 

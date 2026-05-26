@@ -123,20 +123,6 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
     {% endif %}
-    {% if pending_leave is defined and pending_leave > 0 %}
-    <div class="col-sm-6 col-xl-4">
-        <div class="card stat-card stat-warning h-100 border-0">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="d-flex align-items-start justify-content-between mb-3">
-                    <span class="text-uppercase fw-semibold small text-muted" style="letter-spacing:0.06em;">Pending leave</span>
-                    <span class="stat-icon"><i class="bi bi-calendar-check"></i></span>
-                </div>
-                <p class="stat-value mb-3">{{ pending_leave }}</p>
-                <a href="{{ url_for('leave.index') }}" class="btn btn-sm btn-outline-primary align-self-start rounded-3">Review</a>
-            </div>
-        </div>
-    </div>
-    {% endif %}
     {% if pending_overtime is defined and pending_overtime > 0 %}
     <div class="col-sm-6 col-xl-4">
         <div class="card stat-card stat-warning h-100 border-0">

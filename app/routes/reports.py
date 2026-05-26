@@ -204,28 +204,34 @@ def payroll_summary():
 
 def _executive_summary_payload(company_id: int):
     """Aggregate executive metrics for exportable summary documents."""
+    from app.models.company import Branch
+    from app.models.consultant import Consultant, ConsultantPayrollItem
+    from app.services.leave_approval_service import count_all_open_leave_approvals
+    from app.utils.currency import currency_for_country
+
+    today = date.today()
+    month_start = date(today.year, today.month, 1)
+
     active_employees = (
         db.session.query(func.count(Employee.id))
         .filter(Employee.company_id == company_id, Employee.status == 'active')
-        .scalar()
-        or 0
+        .scalar() or 0
     )
-    today = date.today()
-    month_start = date(today.year, today.month, 1)
-    from app.services.leave_approval_service import count_all_open_leave_approvals
-
+    total_employees = (
+        db.session.query(func.count(Employee.id))
+        .filter(Employee.company_id == company_id)
+        .scalar() or 0
+    )
     pending_leave = count_all_open_leave_approvals(company_id)
     pending_overtime = (
         db.session.query(func.count(OvertimeRequest.id))
         .filter(OvertimeRequest.company_id == company_id, OvertimeRequest.status == 'pending')
-        .scalar()
-        or 0
+        .scalar() or 0
     )
     new_hires = (
         db.session.query(func.count(Employee.id))
         .filter(Employee.company_id == company_id, Employee.hire_date >= month_start)
-        .scalar()
-        or 0
+        .scalar() or 0
     )
     exits = (
         db.session.query(func.count(Employee.id))
@@ -234,45 +240,128 @@ def _executive_summary_payload(company_id: int):
             Employee.termination_date.isnot(None),
             Employee.termination_date >= month_start,
         )
-        .scalar()
-        or 0
+        .scalar() or 0
     )
+
+    # Headcount by status
+    status_counts = (
+        db.session.query(Employee.status, func.count(Employee.id))
+        .filter(Employee.company_id == company_id)
+        .group_by(Employee.status)
+        .all()
+    )
+
+    # Headcount by branch
+    branch_counts = (
+        db.session.query(Branch.name, Branch.country_code, func.count(Employee.id))
+        .join(Employee, Employee.branch_id == Branch.id)
+        .filter(Employee.company_id == company_id, Employee.status == 'active')
+        .group_by(Branch.name, Branch.country_code)
+        .order_by(func.count(Employee.id).desc())
+        .all()
+    )
+
+    # Headcount by department
+    dept_counts = (
+        db.session.query(Department.name, func.count(Employee.id))
+        .join(Employee, Employee.department_id == Department.id)
+        .filter(Employee.company_id == company_id, Employee.status == 'active')
+        .group_by(Department.name)
+        .order_by(func.count(Employee.id).desc())
+        .all()
+    )
+
+    # Headcount by employment type
+    type_counts = (
+        db.session.query(Employee.employment_type, func.count(Employee.id))
+        .filter(Employee.company_id == company_id, Employee.status == 'active')
+        .group_by(Employee.employment_type)
+        .all()
+    )
+
+    # Active consultants
+    active_consultants = (
+        db.session.query(func.count(Consultant.id))
+        .filter(Consultant.company_id == company_id, Consultant.status == 'active')
+        .scalar() or 0
+    )
+
+    # Latest payroll (include drafts)
     latest_run = (
         db.session.query(PayrollRun)
-        .filter(PayrollRun.company_id == company_id, PayrollRun.status.in_(('approved', 'paid')))
+        .filter(PayrollRun.company_id == company_id)
         .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc(), PayrollRun.id.desc())
         .first()
     )
-    latest = {
-        'period': 'N/A',
-        'employees_paid': 0,
-        'gross_paid': Decimal('0.00'),
-        'net_paid': Decimal('0.00'),
-    }
+    payroll_by_branch = []
+    payroll_period = None
     if latest_run:
-        gross, net, paid = (
-            db.session.query(
-                func.coalesce(func.sum(PayrollItem.gross_pay), 0),
-                func.coalesce(func.sum(PayrollItem.net_pay), 0),
-                func.count(PayrollItem.id),
+        payroll_period = f'{latest_run.pay_month}/{latest_run.pay_year}'
+        runs_for_period = (
+            db.session.query(PayrollRun)
+            .filter(
+                PayrollRun.company_id == company_id,
+                PayrollRun.pay_year == latest_run.pay_year,
+                PayrollRun.pay_month == latest_run.pay_month,
             )
-            .filter(PayrollItem.payroll_run_id == latest_run.id)
-            .one()
+            .all()
         )
-        latest = {
-            'period': f'{latest_run.pay_month}/{latest_run.pay_year}',
-            'employees_paid': int(paid or 0),
-            'gross_paid': Decimal(str(gross or 0)).quantize(Decimal('0.01')),
-            'net_paid': Decimal(str(net or 0)).quantize(Decimal('0.01')),
-        }
+        for run in runs_for_period:
+            staff_gross, staff_net, staff_count = (
+                db.session.query(
+                    func.coalesce(func.sum(PayrollItem.gross_pay), 0),
+                    func.coalesce(func.sum(PayrollItem.net_pay), 0),
+                    func.count(PayrollItem.id),
+                )
+                .filter(PayrollItem.payroll_run_id == run.id)
+                .one()
+            )
+            con_gross, con_net, con_count = (
+                db.session.query(
+                    func.coalesce(func.sum(ConsultantPayrollItem.gross_pay), 0),
+                    func.coalesce(func.sum(ConsultantPayrollItem.net_pay), 0),
+                    func.count(ConsultantPayrollItem.id),
+                )
+                .filter(ConsultantPayrollItem.payroll_run_id == run.id)
+                .one()
+            )
+            payroll_by_branch.append({
+                'country_code': run.country_code or 'KE',
+                'currency': currency_for_country(run.country_code),
+                'status': run.status,
+                'staff_count': int(staff_count or 0),
+                'staff_gross': Decimal(str(staff_gross or 0)),
+                'staff_net': Decimal(str(staff_net or 0)),
+                'consultant_count': int(con_count or 0),
+                'consultant_gross': Decimal(str(con_gross or 0)),
+                'consultant_net': Decimal(str(con_net or 0)),
+                'total_net': Decimal(str(staff_net or 0)) + Decimal(str(con_net or 0)),
+            })
+
+    # Legacy single-run payroll for CSV/PDF backward compatibility
+    latest_payroll = {
+        'period': payroll_period or 'N/A',
+        'employees_paid': sum(b['staff_count'] for b in payroll_by_branch),
+        'gross_paid': sum((b['staff_gross'] for b in payroll_by_branch), Decimal('0')),
+        'net_paid': sum((b['staff_net'] for b in payroll_by_branch), Decimal('0')),
+    }
+
     return {
         'generated_at': datetime.now(),
         'active_employees': active_employees,
+        'total_employees': total_employees,
+        'active_consultants': active_consultants,
         'pending_leave': pending_leave,
         'pending_overtime': pending_overtime,
         'new_hires_this_month': new_hires,
         'exits_this_month': exits,
-        'latest_payroll': latest,
+        'status_counts': status_counts,
+        'branch_counts': branch_counts,
+        'dept_counts': dept_counts,
+        'type_counts': type_counts,
+        'payroll_period': payroll_period,
+        'payroll_by_branch': payroll_by_branch,
+        'latest_payroll': latest_payroll,
     }
 
 

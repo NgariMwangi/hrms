@@ -237,7 +237,33 @@ def run_calculate(id):
         if salary:
             eligible_employee_ids.add(emp.id)
         else:
-            missing_salary.append(emp)
+            has_benefits = db.session.query(EmployeeBenefit).filter(
+                EmployeeBenefit.employee_id == emp.id,
+                EmployeeBenefit.is_active.is_(True),
+                db.or_(
+                    db.and_(
+                        EmployeeBenefit.frequency == 'one_off',
+                        EmployeeBenefit.payroll_year == run_obj.pay_year,
+                        EmployeeBenefit.payroll_month == run_obj.pay_month,
+                    ),
+                    db.and_(
+                        EmployeeBenefit.frequency == 'monthly',
+                        EmployeeBenefit.payroll_year.isnot(None),
+                        EmployeeBenefit.payroll_month.isnot(None),
+                        db.or_(
+                            EmployeeBenefit.payroll_year < run_obj.pay_year,
+                            db.and_(
+                                EmployeeBenefit.payroll_year == run_obj.pay_year,
+                                EmployeeBenefit.payroll_month <= run_obj.pay_month,
+                            ),
+                        ),
+                    ),
+                ),
+            ).first()
+            if has_benefits:
+                eligible_employee_ids.add(emp.id)
+            else:
+                missing_salary.append(emp)
     eligible_count = len(eligible_employee_ids)
     missing_salary_ids = {e.id for e in missing_salary}
     excluded_rows = (
@@ -273,8 +299,6 @@ def run_calculate(id):
             EmployeeSalary.effective_from <= period_end,
             (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
         ).order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc()).first()
-        if not salary:
-            return False, 'Employee has no salary setup for this period.', None
 
         ot_rows = _approved_overtime_for_employee(
             run_obj.company_id,
@@ -300,10 +324,10 @@ def run_calculate(id):
         db.session.flush()
 
         hire_or_start = emp.hire_date
-        if salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
+        if salary and salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
             hire_or_start = salary.effective_from
         end_or_termination = emp.termination_date
-        if salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
+        if salary and salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
             end_or_termination = salary.effective_to
         if getattr(emp, 'prorate_payroll', True):
             factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)
@@ -352,6 +376,14 @@ def run_calculate(id):
         ).all()
         manual_lines = get_manual_deduction_line_items_for_run(run_obj.id, emp.id)
         overtime_days = sum((Decimal(str(r.days)) for r in ot_rows), start=Decimal('0'))
+
+        basic = salary.basic_salary if salary else 0
+        pension_pct = salary.pension_employee_percent if salary else 0
+        pension_fixed = salary.pension_employee_fixed_amount if salary else 0
+
+        if not salary and not emp_benefits:
+            return False, 'Employee has no salary or benefits for this period.', None
+
         if emp_allowances or emp_benefits:
             allowance_breakdown = []
             if emp_allowances:
@@ -365,7 +397,7 @@ def run_calculate(id):
                     }
                     for ea in emp_allowances
                 ])
-            else:
+            elif salary:
                 allowance_breakdown.extend([
                     {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'code': 'HOUSE', 'name': 'House Allowance'},
                     {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
@@ -383,9 +415,9 @@ def run_calculate(id):
                 for b in emp_benefits
             )
             calc = calculate_employee_payroll(
-                basic_salary=salary.basic_salary,
-                pension_employee_percent=salary.pension_employee_percent,
-                pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+                basic_salary=basic,
+                pension_employee_percent=pension_pct,
+                pension_employee_fixed_amount=pension_fixed,
                 pay_date=pay_date,
                 pro_rata_factor=factor,
                 pro_rata_calendar_days=cal_days,
@@ -399,13 +431,13 @@ def run_calculate(id):
             )
         else:
             calc = calculate_employee_payroll(
-                basic_salary=salary.basic_salary,
-                house_allowance=salary.house_allowance,
-                transport_allowance=salary.transport_allowance,
-                meal_allowance=salary.meal_allowance,
-                other_allowances=salary.other_allowances,
-                pension_employee_percent=salary.pension_employee_percent,
-                pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+                basic_salary=basic,
+                house_allowance=salary.house_allowance if salary else 0,
+                transport_allowance=salary.transport_allowance if salary else 0,
+                meal_allowance=salary.meal_allowance if salary else 0,
+                other_allowances=salary.other_allowances if salary else 0,
+                pension_employee_percent=pension_pct,
+                pension_employee_fixed_amount=pension_fixed,
                 pay_date=pay_date,
                 pro_rata_factor=factor,
                 pro_rata_calendar_days=cal_days,
@@ -505,19 +537,19 @@ def run_calculate(id):
         for emp in employees:
             if emp.id in excluded_employee_ids:
                 continue
+            if emp.id not in eligible_employee_ids:
+                continue
             salary = db.session.query(EmployeeSalary).filter(
                 EmployeeSalary.employee_id == emp.id,
                 EmployeeSalary.effective_from <= period_end,
                 (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
             ).order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc()).first()
-            if not salary:
-                continue
             # Pro-rate using employee lifecycle and salary window overlap.
             hire_or_start = emp.hire_date
-            if salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
+            if salary and salary.effective_from and (not hire_or_start or salary.effective_from > hire_or_start):
                 hire_or_start = salary.effective_from
             end_or_termination = emp.termination_date
-            if salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
+            if salary and salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
                 end_or_termination = salary.effective_to
             if getattr(emp, 'prorate_payroll', True):
                 factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)
@@ -573,6 +605,13 @@ def run_calculate(id):
                 run_obj.id,
             )
             overtime_days = sum((Decimal(str(r.days)) for r in ot_rows), start=Decimal('0'))
+            basic = salary.basic_salary if salary else 0
+            pension_pct = salary.pension_employee_percent if salary else 0
+            pension_fixed = salary.pension_employee_fixed_amount if salary else 0
+
+            if not salary and not emp_benefits:
+                continue
+
             if emp_allowances or emp_benefits:
                 allowance_breakdown = []
                 if emp_allowances:
@@ -586,8 +625,7 @@ def run_calculate(id):
                     }
                     for ea in emp_allowances
                     ])
-                else:
-                    # Preserve legacy salary allowance behavior when no EmployeeAllowance rows exist.
+                elif salary:
                     allowance_breakdown.extend([
                         {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'code': 'HOUSE', 'name': 'House Allowance'},
                         {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
@@ -605,9 +643,9 @@ def run_calculate(id):
                     for b in emp_benefits
                 )
                 calc = calculate_employee_payroll(
-                    basic_salary=salary.basic_salary,
-                    pension_employee_percent=salary.pension_employee_percent,
-                    pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+                    basic_salary=basic,
+                    pension_employee_percent=pension_pct,
+                    pension_employee_fixed_amount=pension_fixed,
                     pay_date=pay_date,
                     pro_rata_factor=factor,
                     pro_rata_calendar_days=cal_days,
@@ -621,13 +659,13 @@ def run_calculate(id):
                 )
             else:
                 calc = calculate_employee_payroll(
-                    basic_salary=salary.basic_salary,
-                    house_allowance=salary.house_allowance,
-                    transport_allowance=salary.transport_allowance,
-                    meal_allowance=salary.meal_allowance,
-                    other_allowances=salary.other_allowances,
-                    pension_employee_percent=salary.pension_employee_percent,
-                    pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+                    basic_salary=basic,
+                    house_allowance=salary.house_allowance if salary else 0,
+                    transport_allowance=salary.transport_allowance if salary else 0,
+                    meal_allowance=salary.meal_allowance if salary else 0,
+                    other_allowances=salary.other_allowances if salary else 0,
+                    pension_employee_percent=pension_pct,
+                    pension_employee_fixed_amount=pension_fixed,
                     pay_date=pay_date,
                     pro_rata_factor=factor,
                     pro_rata_calendar_days=cal_days,

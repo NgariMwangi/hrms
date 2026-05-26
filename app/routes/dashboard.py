@@ -189,36 +189,42 @@ def index():
     executive_summary = None
     if current_user.has_permission('view_reports') or current_user.has_permission('approve_payroll'):
         start_of_month = date(today.year, today.month, 1)
-        latest_paid_or_approved = (
+        latest_run = (
             db.session.query(PayrollRun)
-            .filter(
-                PayrollRun.company_id == cid,
-                PayrollRun.status.in_(('approved', 'paid')),
-            )
+            .filter(PayrollRun.company_id == cid)
             .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc(), PayrollRun.id.desc())
             .first()
         )
         payroll_totals = {
-            'gross': 0,
             'net': 0,
             'employees_paid': 0,
             'period': None,
+            'status': None,
         }
-        if latest_paid_or_approved:
-            gross_sum, net_sum, emp_count = (
+        if latest_run:
+            all_runs_for_period = (
+                db.session.query(PayrollRun.id)
+                .filter(
+                    PayrollRun.company_id == cid,
+                    PayrollRun.pay_year == latest_run.pay_year,
+                    PayrollRun.pay_month == latest_run.pay_month,
+                )
+                .all()
+            )
+            run_ids = [r.id for r in all_runs_for_period]
+            net_sum, emp_count = (
                 db.session.query(
-                    func.coalesce(func.sum(PayrollItem.gross_pay), 0),
                     func.coalesce(func.sum(PayrollItem.net_pay), 0),
                     func.count(PayrollItem.id),
                 )
-                .filter(PayrollItem.payroll_run_id == latest_paid_or_approved.id)
+                .filter(PayrollItem.payroll_run_id.in_(run_ids))
                 .one()
             )
             payroll_totals = {
-                'gross': gross_sum,
                 'net': net_sum,
                 'employees_paid': emp_count,
-                'period': f"{latest_paid_or_approved.pay_month}/{latest_paid_or_approved.pay_year}",
+                'period': f"{latest_run.pay_month}/{latest_run.pay_year}",
+                'status': latest_run.status,
             }
         executive_summary = {
             'active_employees': total_employees,

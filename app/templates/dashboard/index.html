@@ -11,7 +11,7 @@
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="h6 mb-0">Company operating summary</h2>
             {% if executive_summary.payroll_totals.period %}
-            <span class="badge text-bg-light">Latest payroll: {{ executive_summary.payroll_totals.period }}</span>
+            <span class="badge text-bg-light">Latest payroll: {{ executive_summary.payroll_totals.period }} <span class="badge bg-secondary bg-opacity-75">{{ executive_summary.payroll_totals.status }}</span></span>
             {% endif %}
         </div>
         <div class="row g-3">
@@ -23,20 +23,14 @@
             </div>
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
-                    <div class="small text-muted">Employees paid (latest run)</div>
+                    <div class="small text-muted">Employees in payroll (all branches)</div>
                     <div class="h5 mb-0">{{ executive_summary.payroll_totals.employees_paid }}</div>
                 </div>
             </div>
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
-                    <div class="small text-muted">Gross paid (latest run)</div>
-                    <div class="h6 mb-0">{{ executive_summary.payroll_totals.gross|fmt_money(currency) }}</div>
-                </div>
-            </div>
-            <div class="col-sm-6 col-lg-3">
-                <div class="border rounded p-3 h-100">
-                    <div class="small text-muted">Net paid (latest run)</div>
-                    <div class="h6 mb-0">{{ executive_summary.payroll_totals.net|fmt_money(currency) }}</div>
+                    <div class="small text-muted">Net pay (all branches)</div>
+                    <div class="h6 mb-0">{{ "{:,.2f}".format(executive_summary.payroll_totals.net|float) }}</div>
                 </div>
             </div>
             <div class="col-sm-6 col-lg-3">

@@ -969,6 +969,11 @@ def view_run(id):
         'wht': sum(Decimal(str(it.withholding_tax or 0)) for it in consultant_items),
         'net': sum(Decimal(str(it.net_pay or 0)) for it in consultant_items),
     }
+    combined_totals = {
+        'gross': staff_totals['gross'] + consultant_totals['gross'],
+        'net': staff_totals['net'] + consultant_totals['net'],
+    }
+    run_currency = currency_for_country(_cc(run_obj.country_code))
     return render_template(
         'payroll/view_run.html',
         run=run_obj,
@@ -976,6 +981,8 @@ def view_run(id):
         consultant_items=consultant_items,
         staff_totals=staff_totals,
         consultant_totals=consultant_totals,
+        combined_totals=combined_totals,
+        run_currency=run_currency,
         tab=tab,
         q=q,
     )

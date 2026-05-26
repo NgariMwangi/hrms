@@ -102,10 +102,20 @@
 </div>
 {% endif %}
 
+{% if items or consultant_items %}
+<div class="card mb-3 border-primary">
+    <div class="card-body py-2">
+        <strong>Combined Totals (Staff + Consultants):</strong>
+        Gross <strong>{{ combined_totals.gross|fmt_money(run_currency) }}</strong> ·
+        Net <strong>{{ combined_totals.net|fmt_money(run_currency) }}</strong>
+    </div>
+</div>
+{% endif %}
+
 {% if tab == 'staff' %}
 <div class="card mb-3">
     <div class="card-body py-2 small">
-        <strong>Totals:</strong> Gross {{ "%.2f"|format(staff_totals.gross|float) }} · Net {{ "%.2f"|format(staff_totals.net|float) }}
+        <strong>Staff Totals:</strong> Gross {{ staff_totals.gross|fmt_money(run_currency) }} · Net {{ staff_totals.net|fmt_money(run_currency) }}
     </div>
 </div>
 <div class="table-responsive">
@@ -115,13 +125,13 @@
         {% for item in items %}
         <tr>
             <td>{{ item.employee.full_name if item.employee else '-' }}</td>
-            <td>{{ "%.2f"|format(item.gross_pay|float) }}</td>
-            <td>{{ "%.2f"|format(item.paye|float) }}</td>
-            <td>{{ "%.2f"|format(item.nssf_employee|float) }}</td>
-            <td>{{ "%.2f"|format(item.shif|float) }}</td>
-            <td>{{ "%.2f"|format(item.housing_levy|float) }}</td>
-            <td>{{ "%.2f"|format(item.other_deductions|float) }}</td>
-            <td>{{ "%.2f"|format(item.net_pay|float) }}</td>
+            <td>{{ item.gross_pay|fmt_money(run_currency) }}</td>
+            <td>{{ item.paye|fmt_money(run_currency) }}</td>
+            <td>{{ item.nssf_employee|fmt_money(run_currency) }}</td>
+            <td>{{ item.shif|fmt_money(run_currency) }}</td>
+            <td>{{ item.housing_levy|fmt_money(run_currency) }}</td>
+            <td>{{ item.other_deductions|fmt_money(run_currency) }}</td>
+            <td>{{ item.net_pay|fmt_money(run_currency) }}</td>
             <td><a href="{{ url_for('payroll.view_payslip', run_id=run.id, employee_id=item.employee_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
         </tr>
         {% else %}
@@ -133,7 +143,7 @@
 {% else %}
 <div class="card mb-3">
     <div class="card-body py-2 small">
-        <strong>Totals:</strong> Gross {{ "%.2f"|format(consultant_totals.gross|float) }} · WHT {{ "%.2f"|format(consultant_totals.wht|float) }} · Net {{ "%.2f"|format(consultant_totals.net|float) }}
+        <strong>Consultant Totals:</strong> Gross {{ consultant_totals.gross|fmt_money(run_currency) }} · WHT {{ consultant_totals.wht|fmt_money(run_currency) }} · Net {{ consultant_totals.net|fmt_money(run_currency) }}
     </div>
 </div>
 <div class="table-responsive">
@@ -143,9 +153,9 @@
         {% for item in consultant_items %}
         <tr>
             <td>{{ item.consultant.full_name if item.consultant else '-' }}</td>
-            <td>{{ "%.2f"|format(item.gross_pay|float) }}</td>
-            <td>{{ "%.2f"|format(item.withholding_tax|float) }}</td>
-            <td>{{ "%.2f"|format(item.net_pay|float) }}</td>
+            <td>{{ item.gross_pay|fmt_money(run_currency) }}</td>
+            <td>{{ item.withholding_tax|fmt_money(run_currency) }}</td>
+            <td>{{ item.net_pay|fmt_money(run_currency) }}</td>
             <td><a href="{{ url_for('payroll.view_consultant_payslip', run_id=run.id, consultant_id=item.consultant_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
         </tr>
         {% else %}

@@ -58,46 +58,54 @@
     </div>
 </div>
 {% endif %}
-{% if payroll_trend %}
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-white py-3">
-        <h2 class="h6 mb-0"><i class="bi bi-graph-up me-2"></i>Payroll Trend (Net Pay by Month)</h2>
-    </div>
-    <div class="card-body">
-        <canvas id="payrollTrendChart" height="80"></canvas>
-    </div>
-</div>
+{% if payroll_charts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<div class="row g-3 mb-4">
+    {% for chart in payroll_charts %}
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3">
+                <h2 class="h6 mb-0"><i class="bi bi-graph-up me-2"></i>{{ chart.title }}</h2>
+            </div>
+            <div class="card-body">
+                <canvas id="{{ chart.id }}" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    var ctx = document.getElementById('payrollTrendChart').getContext('2d');
-    var chartData = {{ payroll_trend|safe }};
-    new Chart(ctx, {
-        type: 'line',
-        data: chartData,
-        options: {
-            responsive: true,
-            interaction: { intersect: false, mode: 'index' },
-            plugins: {
-                legend: { position: 'top' },
-                tooltip: {
-                    callbacks: {
-                        label: function(ctx) {
-                            return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    {% for chart in payroll_charts %}
+    (function() {
+        var ctx = document.getElementById('{{ chart.id }}').getContext('2d');
+        var chartData = {{ chart.data_json|safe }};
+        new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(c) {
+                                return c.dataset.label + ': ' + c.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                            }
                         }
                     }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) { return value.toLocaleString(); }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { callback: function(v) { return v.toLocaleString(); } }
                     }
                 }
             }
-        }
-    });
+        });
+    })();
+    {% endfor %}
 });
 </script>
 {% endif %}

@@ -252,10 +252,11 @@ def index():
             'payroll_period': payroll_period,
             'payroll_by_branch': payroll_by_branch,
         }
-    payroll_trend = []
+    payroll_charts = []
     if executive_summary:
         from app.utils.currency import currency_for_country
         import json as _json
+        from collections import OrderedDict
 
         trend_runs = (
             db.session.query(
@@ -285,34 +286,38 @@ def index():
         )
         con_lookup = {}
         for r in trend_consultant:
-            key = (r.pay_year, r.pay_month, r.country_code)
-            con_lookup[key] = float(r.con_net or 0)
-
-        from collections import OrderedDict
-        months_data = OrderedDict()
-        for r in trend_runs:
-            label = f"{r.pay_month:02d}/{r.pay_year}"
-            cc = r.country_code or 'KE'
-            if label not in months_data:
-                months_data[label] = {}
-            con_net = con_lookup.get((r.pay_year, r.pay_month, r.country_code), 0)
-            months_data[label][cc] = float(r.staff_net or 0) + con_net
+            con_lookup[(r.pay_year, r.pay_month, r.country_code)] = float(r.con_net or 0)
 
         all_countries = sorted({r.country_code or 'KE' for r in trend_runs})
-        chart_labels = list(months_data.keys())[-12:]
-        chart_datasets = []
         colors = ['#0d6efd', '#198754', '#dc3545', '#ffc107', '#6f42c1', '#20c997']
+
         for i, cc in enumerate(all_countries):
-            data = [months_data.get(lbl, {}).get(cc, 0) for lbl in chart_labels]
-            chart_datasets.append({
-                'label': f'{cc} ({currency_for_country(cc)})',
-                'data': data,
-                'borderColor': colors[i % len(colors)],
-                'backgroundColor': colors[i % len(colors)] + '33',
-                'tension': 0.3,
-                'fill': True,
+            months_data = OrderedDict()
+            for r in trend_runs:
+                if (r.country_code or 'KE') != cc:
+                    continue
+                label = f"{r.pay_month:02d}/{r.pay_year}"
+                con_net = con_lookup.get((r.pay_year, r.pay_month, r.country_code), 0)
+                months_data[label] = float(r.staff_net or 0) + con_net
+
+            chart_labels = list(months_data.keys())[-12:]
+            chart_data = [months_data.get(lbl, 0) for lbl in chart_labels]
+            currency = currency_for_country(cc)
+            payroll_charts.append({
+                'id': f'payrollChart_{cc}',
+                'title': f'{cc} — {currency}',
+                'data_json': _json.dumps({
+                    'labels': chart_labels,
+                    'datasets': [{
+                        'label': f'Net Pay ({currency})',
+                        'data': chart_data,
+                        'borderColor': colors[i % len(colors)],
+                        'backgroundColor': colors[i % len(colors)] + '33',
+                        'tension': 0.3,
+                        'fill': True,
+                    }]
+                }),
             })
-        payroll_trend = _json.dumps({'labels': chart_labels, 'datasets': chart_datasets})
 
     return render_template(
         'dashboard/index.html',
@@ -321,7 +326,7 @@ def index():
         pending_overtime=pending_overtime,
         latest_payroll=latest_payroll,
         executive_summary=executive_summary,
-        payroll_trend=payroll_trend,
+        payroll_charts=payroll_charts,
         probation_alert_window_days=probation_alert_window_days,
         probation_nearing=probation_nearing,
         probation_arrived=probation_arrived,

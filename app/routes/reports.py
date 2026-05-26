@@ -143,6 +143,7 @@ def employee_list_csv():
             'full_name',
             'email',
             'phone',
+            'branch',
             'department',
             'job_title',
             'status',
@@ -150,24 +151,41 @@ def employee_list_csv():
             'kra_pin',
             'nssf_number',
             'shif_nhif_number',
+            'bank_name',
+            'bank_branch',
+            'bank_account_number',
+            'bank_code',
+            'swift_code',
         ]
     )
+    def _text(val):
+        """Force Excel to treat value as text by wrapping in ="..."."""
+        v = (val or '').strip()
+        return f'="{v}"' if v else ''
+
     for e in employees:
         dept = e.department.name if e.department else ''
         jt = e.job_title.name if e.job_title else ''
+        branch_name = e.branch.name if e.branch else ''
         w.writerow(
             [
                 e.employee_number,
                 e.full_name,
                 (e.email or '').strip(),
-                (e.phone or '').strip(),
+                _text(e.phone),
+                branch_name,
                 dept,
                 jt,
                 e.status or '',
                 e.hire_date.isoformat() if e.hire_date else '',
-                (e.kra_pin or '').strip(),
-                (e.nssf_number or '').strip(),
-                (e.nhif_number or '').strip(),
+                _text(e.kra_pin),
+                _text(e.nssf_number),
+                _text(e.nhif_number),
+                (e.bank_name or '').strip(),
+                (e.bank_branch or '').strip(),
+                _text(e.bank_account_number),
+                _text(e.bank_code),
+                (e.swift_code or '').strip(),
             ]
         )
     out = BytesIO()

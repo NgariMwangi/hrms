@@ -30,18 +30,22 @@
                 </div>
             </div>
             {% endfor %}
+            {% if has_permission('view_leave') or has_permission('approve_leave') %}
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
                     <div class="small text-muted">Pending leave approvals</div>
                     <div class="h5 mb-0">{{ executive_summary.pending_leave }}</div>
                 </div>
             </div>
+            {% endif %}
+            {% if has_permission('approve_overtime') %}
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
                     <div class="small text-muted">Pending overtime approvals</div>
                     <div class="h5 mb-0">{{ executive_summary.pending_overtime }}</div>
                 </div>
             </div>
+            {% endif %}
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
                     <div class="small text-muted">New hires this month</div>

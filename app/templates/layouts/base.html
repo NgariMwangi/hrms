@@ -113,7 +113,7 @@
                     </div>
                 </div>
             </div>
-            {% else %}
+            {% elif has_permission('view_leave') %}
             <a class="nav-link {{ 'active' if leave_main_active else '' }}" href="{{ url_for('leave.index') }}">
                 <i class="bi bi-calendar-check"></i> Leave
             </a>

@@ -7,9 +7,23 @@
         <h1 class="h3 mb-1">Employee List</h1>
         <p class="text-muted mb-0">Full roster with employment details and statutory identifiers.</p>
     </div>
-    <a class="btn btn-outline-primary" href="{{ url_for('reports.employee_list_csv', **request.args) }}">
-        <i class="bi bi-download me-1"></i> Download CSV
-    </a>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary" href="{{ url_for('reports.employee_list_csv', **request.args) }}">
+            <i class="bi bi-download me-1"></i> Download Current View
+        </a>
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-download me-1"></i> Download by Branch
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="{{ url_for('reports.employee_list_csv') }}"><strong>All branches</strong></a></li>
+                <li><hr class="dropdown-divider"></li>
+                {% for b in branches %}
+                <li><a class="dropdown-item" href="{{ url_for('reports.employee_list_csv', branch_id=b.id) }}">{{ b.name }}{% if b.country_code %} ({{ b.country_code }}){% endif %}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
 </div>
 
 <div class="card border-0 shadow-sm mb-4">

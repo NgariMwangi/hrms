@@ -188,6 +188,8 @@ def index():
     )
     executive_summary = None
     if current_user.has_permission('view_reports') or current_user.has_permission('approve_payroll'):
+        from app.utils.currency import currency_for_country
+
         start_of_month = date(today.year, today.month, 1)
         latest_run = (
             db.session.query(PayrollRun)
@@ -195,15 +197,12 @@ def index():
             .order_by(PayrollRun.pay_year.desc(), PayrollRun.pay_month.desc(), PayrollRun.id.desc())
             .first()
         )
-        payroll_totals = {
-            'net': 0,
-            'employees_paid': 0,
-            'period': None,
-            'status': None,
-        }
+        payroll_by_branch = []
+        payroll_period = None
         if latest_run:
-            all_runs_for_period = (
-                db.session.query(PayrollRun.id)
+            payroll_period = f"{latest_run.pay_month}/{latest_run.pay_year}"
+            runs_for_period = (
+                db.session.query(PayrollRun)
                 .filter(
                     PayrollRun.company_id == cid,
                     PayrollRun.pay_year == latest_run.pay_year,
@@ -211,21 +210,22 @@ def index():
                 )
                 .all()
             )
-            run_ids = [r.id for r in all_runs_for_period]
-            net_sum, emp_count = (
-                db.session.query(
-                    func.coalesce(func.sum(PayrollItem.net_pay), 0),
-                    func.count(PayrollItem.id),
+            for run in runs_for_period:
+                net_sum, emp_count = (
+                    db.session.query(
+                        func.coalesce(func.sum(PayrollItem.net_pay), 0),
+                        func.count(PayrollItem.id),
+                    )
+                    .filter(PayrollItem.payroll_run_id == run.id)
+                    .one()
                 )
-                .filter(PayrollItem.payroll_run_id.in_(run_ids))
-                .one()
-            )
-            payroll_totals = {
-                'net': net_sum,
-                'employees_paid': emp_count,
-                'period': f"{latest_run.pay_month}/{latest_run.pay_year}",
-                'status': latest_run.status,
-            }
+                payroll_by_branch.append({
+                    'country_code': run.country_code or 'KE',
+                    'currency': currency_for_country(run.country_code),
+                    'net': net_sum,
+                    'employees': emp_count,
+                    'status': run.status,
+                })
         executive_summary = {
             'active_employees': total_employees,
             'pending_leave': pending_leave,
@@ -239,7 +239,8 @@ def index():
                 Employee.termination_date.isnot(None),
                 Employee.termination_date >= start_of_month,
             ).count(),
-            'payroll_totals': payroll_totals,
+            'payroll_period': payroll_period,
+            'payroll_by_branch': payroll_by_branch,
         }
     return render_template(
         'dashboard/index.html',

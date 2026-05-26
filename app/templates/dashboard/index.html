@@ -10,8 +10,8 @@
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="h6 mb-0">Company operating summary</h2>
-            {% if executive_summary.payroll_totals.period %}
-            <span class="badge text-bg-light">Latest payroll: {{ executive_summary.payroll_totals.period }} <span class="badge bg-secondary bg-opacity-75">{{ executive_summary.payroll_totals.status }}</span></span>
+            {% if executive_summary.payroll_period %}
+            <span class="badge text-bg-light">Latest payroll: {{ executive_summary.payroll_period }}</span>
             {% endif %}
         </div>
         <div class="row g-3">
@@ -21,18 +21,15 @@
                     <div class="h5 mb-0">{{ executive_summary.active_employees }}</div>
                 </div>
             </div>
+            {% for branch in executive_summary.payroll_by_branch %}
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
-                    <div class="small text-muted">Employees in payroll (all branches)</div>
-                    <div class="h5 mb-0">{{ executive_summary.payroll_totals.employees_paid }}</div>
+                    <div class="small text-muted">Net pay · {{ branch.country_code }} <span class="badge bg-secondary bg-opacity-75">{{ branch.status }}</span></div>
+                    <div class="h6 mb-0">{{ branch.currency }} {{ "{:,.2f}".format(branch.net|float) }}</div>
+                    <div class="small text-muted mt-1">{{ branch.employees }} employee{{ 's' if branch.employees != 1 else '' }}</div>
                 </div>
             </div>
-            <div class="col-sm-6 col-lg-3">
-                <div class="border rounded p-3 h-100">
-                    <div class="small text-muted">Net pay (all branches)</div>
-                    <div class="h6 mb-0">{{ "{:,.2f}".format(executive_summary.payroll_totals.net|float) }}</div>
-                </div>
-            </div>
+            {% endfor %}
             <div class="col-sm-6 col-lg-3">
                 <div class="border rounded p-3 h-100">
                     <div class="small text-muted">Pending leave approvals</div>

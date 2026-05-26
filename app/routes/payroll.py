@@ -329,7 +329,7 @@ def run_calculate(id):
         end_or_termination = emp.termination_date
         if salary and salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
             end_or_termination = salary.effective_to
-        should_prorate = getattr(emp, 'prorate_payroll', True)
+        should_prorate = getattr(emp, 'prorate_payroll', None)
         print("should_prorate",should_prorate)
         if should_prorate is None or should_prorate:
             factor = pro_rata_factor(hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year)

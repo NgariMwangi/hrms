@@ -73,6 +73,14 @@
     </div>
 </div>
 
+<style>
+    .sticky-col-1 { position: sticky; left: 0; z-index: 2; background: inherit; }
+    .sticky-col-2 { position: sticky; left: 70px; z-index: 2; background: inherit; }
+    thead .sticky-col-1, thead .sticky-col-2 { z-index: 3; }
+    .table-hover tbody tr:hover .sticky-col-1,
+    .table-hover tbody tr:hover .sticky-col-2 { background: #f8f9fa; }
+    .sticky-col-2 { border-right: 2px solid #dee2e6 !important; }
+</style>
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
         <span class="fw-semibold small">{{ employees|length }} employee{{ 's' if employees|length != 1 else '' }}</span>
@@ -81,8 +89,8 @@
         <table class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
                 <tr>
-                    <th class="ps-3">No.</th>
-                    <th>Name</th>
+                    <th class="ps-3 sticky-col-1" style="min-width:70px">No.</th>
+                    <th class="sticky-col-2" style="min-width:160px">Name</th>
                     <th>Branch</th>
                     <th>Department</th>
                     <th>Job Title</th>
@@ -98,8 +106,8 @@
             <tbody>
                 {% for e in employees %}
                 <tr>
-                    <td class="ps-3 text-nowrap fw-medium">{{ e.employee_number or '—' }}</td>
-                    <td class="text-nowrap">
+                    <td class="ps-3 text-nowrap fw-medium sticky-col-1 bg-white">{{ e.employee_number or '—' }}</td>
+                    <td class="text-nowrap sticky-col-2 bg-white">
                         <a href="{{ url_for('employees.view', id=e.id) }}" class="text-decoration-none">{{ e.full_name }}</a>
                     </td>
                     <td class="text-nowrap small">{{ e.branch.name if e.branch else '—' }}</td>

@@ -5,6 +5,7 @@
 <p class="text-muted mb-4">
     <strong>{{ employee.employee_number or 'No Number' }}</strong> — {{ employee.full_name }}.
     Record each benefit once and pick the payroll month it should appear in.
+    Use a negative amount for payroll deductions or adjustments.
 </p>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a href="{{ url_for('employees.view', id=employee.id) }}" class="btn btn-outline-secondary">Back to employee</a>
@@ -22,7 +23,7 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label">Amount ({{ currency_code }})</label>
-                <input type="number" name="amount" class="form-control" step="0.01" min="0" required value="0"/>
+                <input type="number" name="amount" class="form-control" step="0.01" required value="0"/>
             </div>
             <div class="col-md-2">
                 <label class="form-label">Frequency</label>
@@ -105,7 +106,7 @@
                                 </div>
                                 <div class="col-md-2">
                                     <label class="form-label mb-1">Amount</label>
-                                    <input type="number" name="amount" class="form-control form-control-sm" step="0.01" min="0" required value="{{ a.amount|float }}">
+                                    <input type="number" name="amount" class="form-control form-control-sm" step="0.01" required value="{{ a.amount|float }}">
                                 </div>
                                 <div class="col-md-2">
                                     <label class="form-label mb-1">Frequency</label>

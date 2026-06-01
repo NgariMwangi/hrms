@@ -1194,7 +1194,7 @@ def employee_benefits(id):
                 frequency = 'one_off'
             if (
                 title
-                and amount is not None and amount >= 0
+                and amount is not None
                 and payroll_year and 2000 <= payroll_year <= 2100
                 and payroll_month and 1 <= payroll_month <= 12
             ):
@@ -1239,7 +1239,7 @@ def employee_benefits(id):
                 flash('Benefit not found.', 'danger')
             elif not (
                 title
-                and amount is not None and amount >= 0
+                and amount is not None
                 and payroll_year and 2000 <= payroll_year <= 2100
                 and payroll_month and 1 <= payroll_month <= 12
             ):

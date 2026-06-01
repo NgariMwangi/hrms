@@ -411,6 +411,7 @@ def run_calculate(id):
                     'amount': b.amount,
                     'is_taxable': True,
                     'is_pensionable': True,
+                    'prorate': False,
                     'code': f'BEN-{b.id}',
                     'name': b.title or 'Benefit',
                 }
@@ -640,6 +641,7 @@ def run_calculate(id):
                         'amount': b.amount,
                         'is_taxable': True,
                         'is_pensionable': True,
+                        'prorate': False,
                         'code': f'BEN-{b.id}',
                         'name': b.title or 'Benefit',
                     }

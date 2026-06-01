@@ -105,7 +105,9 @@ def build_gross_earnings(
         pensionable_allowances = Decimal('0')
         earnings_breakdown = [{'code': 'BASIC', 'name': 'Basic Salary', 'amount': float(basic)}]
         for a in allowance_breakdown:
-            amt = prorate_monthly(decimalize(a.get('amount', 0)))
+            should_prorate_line = a.get('prorate', True)
+            base_amt = decimalize(a.get('amount', 0))
+            amt = prorate_monthly(base_amt) if should_prorate_line else base_amt
             total_allowances += amt
             if a.get('is_pensionable'):
                 pensionable_allowances += amt

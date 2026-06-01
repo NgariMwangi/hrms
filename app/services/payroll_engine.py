@@ -3,6 +3,7 @@ Payroll calculation router and Kenya engine.
 
 Kenya: PAYE after NSSF, SHIF, Housing Levy on gross; pension cap for PAYE.
 Uganda: see uganda_payroll_engine.py (PAYE on gross − LST, NSSF on gross, LST Jul–Oct).
+Tanzania: see tanzania_payroll_engine.py (PAYE on gross, NSSF 10%/10%, SDL/WCF employer-only).
 """
 from datetime import date
 from decimal import Decimal
@@ -62,9 +63,36 @@ def calculate_employee_payroll(
     july_gross_for_lst: Decimal | None = None,
 ) -> dict:
     """
-    Calculate single employee pay for the month. Routes to Uganda engine when country is UG.
+    Calculate single employee pay for the month. Routes by statutory country (UG, TZ, else Kenya).
     """
     scc = (statutory_country_code or 'KE').upper()[:2]
+    if scc == 'TZ':
+        from app.services.tanzania_payroll_engine import calculate_employee_payroll_tanzania
+
+        return calculate_employee_payroll_tanzania(
+            basic_salary=basic_salary,
+            house_allowance=house_allowance,
+            transport_allowance=transport_allowance,
+            meal_allowance=meal_allowance,
+            other_allowances=other_allowances,
+            pension_employee_percent=pension_employee_percent,
+            pension_employee_fixed_amount=pension_employee_fixed_amount,
+            pay_date=pay_date,
+            pro_rata_factor=pro_rata_factor,
+            pro_rata_calendar_days=pro_rata_calendar_days,
+            other_earnings=other_earnings,
+            other_deductions=other_deductions,
+            allowance_breakdown=allowance_breakdown,
+            employee_id=employee_id,
+            manual_deduction_lines=manual_deduction_lines,
+            statutory_company_id=statutory_company_id,
+            statutory_country_code=scc,
+            overtime_days=overtime_days,
+            pay_month=pay_month,
+            pay_year=pay_year,
+            july_gross_for_lst=july_gross_for_lst,
+        )
+
     if scc == 'UG':
         from app.services.uganda_payroll_engine import calculate_employee_payroll_uganda
 

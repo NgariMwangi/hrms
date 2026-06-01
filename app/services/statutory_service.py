@@ -48,6 +48,10 @@ def get_shif_percent(as_at: date, company_id: int, country_code: str = 'KE') -> 
     return _get_rate('SHIF_PERCENT', as_at, company_id, country_code)
 
 
+def get_shif_min_amount(as_at: date, company_id: int, country_code: str = 'KE') -> Decimal:
+    return _get_rate('SHIF_MIN_AMOUNT', as_at, company_id, country_code)
+
+
 def get_housing_levy_percent(as_at: date, company_id: int, country_code: str = 'KE') -> Decimal:
     return _get_rate('HOUSING_LEVY_PERCENT', as_at, company_id, country_code)
 
@@ -237,7 +241,9 @@ def calculate_shif(
     gross_pay: Decimal, as_at: date, company_id: int, country_code: str = 'KE'
 ) -> Decimal:
     pct = get_shif_percent(as_at, company_id, country_code)
-    return (gross_pay * pct / 100).quantize(Decimal('0.01'))
+    min_amount = get_shif_min_amount(as_at, company_id, country_code)
+    percent_amount = (gross_pay * pct / 100).quantize(Decimal('0.01'))
+    return max(percent_amount, min_amount.quantize(Decimal('0.01')))
 
 
 def calculate_housing_levy(

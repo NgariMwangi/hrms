@@ -9,6 +9,7 @@ from app.models.statutory import StatutoryRate, PayeBracket, NssfTier
 from app.services.statutory_service import (
     get_personal_relief,
     get_shif_percent,
+    get_shif_min_amount,
     calculate_nssf,
     calculate_nssf_with_breakdown,
     calculate_paye,
@@ -45,7 +46,12 @@ def seed_statutory(app_ctx, tenant_company):
     cid = tenant_company
     cc = 'KE'
     eff = date(2026, 1, 1)
-    for code, value in [('PERSONAL_RELIEF', 2400), ('SHIF_PERCENT', 2.75), ('HOUSING_LEVY_PERCENT', 1.5)]:
+    for code, value in [
+        ('PERSONAL_RELIEF', 2400),
+        ('SHIF_PERCENT', 2.75),
+        ('SHIF_MIN_AMOUNT', 300),
+        ('HOUSING_LEVY_PERCENT', 1.5),
+    ]:
         if (
             db.session.query(StatutoryRate)
             .filter_by(company_id=cid, country_code=cc, code=code, effective_from=eff)
@@ -120,9 +126,18 @@ def test_get_shif_percent(app_ctx, seed_statutory, tenant_company):
     assert get_shif_percent(date(2026, 6, 1), tenant_company, 'KE') == Decimal('2.75')
 
 
+def test_get_shif_min_amount(app_ctx, seed_statutory, tenant_company):
+    assert get_shif_min_amount(date(2026, 6, 1), tenant_company, 'KE') == Decimal('300')
+
+
 def test_calculate_shif(app_ctx, seed_statutory, tenant_company):
     # 2.75% of 100000
     assert calculate_shif(Decimal('100000'), date(2026, 6, 1), tenant_company, 'KE') == Decimal('2750.00')
+
+
+def test_calculate_shif_applies_minimum(app_ctx, seed_statutory, tenant_company):
+    # 2.75% of 10,000 = 275, so minimum 300 should apply.
+    assert calculate_shif(Decimal('10000'), date(2026, 6, 1), tenant_company, 'KE') == Decimal('300.00')
 
 
 def test_calculate_housing_levy(app_ctx, seed_statutory, tenant_company):

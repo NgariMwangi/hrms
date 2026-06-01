@@ -124,7 +124,15 @@
         <tbody>
         {% for item in items %}
         <tr>
-            <td>{{ item.employee.full_name if item.employee else '-' }}</td>
+            <td>
+                {% if item.employee %}
+                <a href="{{ url_for('employees.view', id=item.employee.id) }}" class="text-decoration-none">
+                    {{ item.employee.full_name }}
+                </a>
+                {% else %}
+                -
+                {% endif %}
+            </td>
             <td>{{ "{:,.2f}".format(item.gross_pay|float) }}</td>
             <td>{{ "{:,.2f}".format(item.paye|float) }}</td>
             <td>{{ "{:,.2f}".format(item.nssf_employee|float) }}</td>

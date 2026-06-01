@@ -10,8 +10,12 @@ class Employee(BaseModel):
     """Employee record: personal info, Kenyan IDs, employment details, bank."""
     __tablename__ = 'employees'
 
+    __table_args__ = (
+        db.UniqueConstraint('branch_id', 'employee_number', name='uq_employees_branch_employee_number'),
+    )
+
     # Manual and optional (nullable for legacy/no-number records)
-    employee_number = db.Column(db.String(30), unique=True, nullable=True)
+    employee_number = db.Column(db.String(30), nullable=True)
 
     # Personal
     first_name = db.Column(db.String(100), nullable=False)

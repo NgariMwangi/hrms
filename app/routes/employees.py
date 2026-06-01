@@ -122,14 +122,41 @@ def list():
         else:
             q = q.filter(db.text('1=0'))
     if search:
-        q = q.filter(
-            db.or_(
-                Employee.first_name.ilike(f'%{search}%'),
-                Employee.last_name.ilike(f'%{search}%'),
-                Employee.employee_number.ilike(f'%{search}%'),
-                Employee.email.ilike(f'%{search}%'),
+        # Token-based "free" search: each token must appear in at least one key field.
+        # This supports queries like "john mwangi", employee number fragments, emails, phones, IDs.
+        terms = [t for t in search.split() if t]
+        if terms:
+            full_name_expr = (
+                db.func.coalesce(Employee.first_name, '')
+                + ' '
+                + db.func.coalesce(Employee.middle_name, '')
+                + ' '
+                + db.func.coalesce(Employee.last_name, '')
             )
-        )
+            reverse_name_expr = (
+                db.func.coalesce(Employee.last_name, '')
+                + ' '
+                + db.func.coalesce(Employee.first_name, '')
+                + ' '
+                + db.func.coalesce(Employee.middle_name, '')
+            )
+            for term in terms:
+                like = f'%{term}%'
+                q = q.filter(
+                    db.or_(
+                        Employee.first_name.ilike(like),
+                        Employee.middle_name.ilike(like),
+                        Employee.last_name.ilike(like),
+                        full_name_expr.ilike(like),
+                        reverse_name_expr.ilike(like),
+                        Employee.employee_number.ilike(like),
+                        Employee.email.ilike(like),
+                        Employee.phone.ilike(like),
+                        Employee.national_id.ilike(like),
+                        Employee.passport_number.ilike(like),
+                        Employee.kra_pin.ilike(like),
+                    )
+                )
     employees = q.order_by(Employee.employee_number).all()
     departments = (
         db.session.query(Department).filter(Department.company_id == cid).order_by(Department.name).all()
@@ -417,11 +444,15 @@ def create():
             if employee_number:
                 existing_emp = (
                     db.session.query(Employee)
-                    .filter(Employee.company_id == cid, Employee.employee_number == employee_number)
+                    .filter(
+                        Employee.company_id == cid,
+                        Employee.branch_id == branch.id,
+                        Employee.employee_number == employee_number,
+                    )
                     .first()
                 )
                 if existing_emp:
-                    flash('Employee number already exists. Use a different number.', 'danger')
+                    flash('Employee number already exists in this branch. Use a different number.', 'danger')
                     return render_template('employees/create.html', form=form)
             emp = Employee(
                 company_id=cid,
@@ -703,13 +734,14 @@ def edit(id):
                     db.session.query(Employee)
                     .filter(
                         Employee.company_id == cid,
+                        Employee.branch_id == branch.id,
                         Employee.employee_number == employee_number,
                         Employee.id != emp.id,
                     )
                     .first()
                 )
                 if existing_emp:
-                    flash('Employee number already exists. Use a different number.', 'danger')
+                    flash('Employee number already exists in this branch. Use a different number.', 'danger')
                     return render_template('employees/edit.html', form=form, employee=emp)
             emp.employee_number = employee_number
             emp.branch_id = branch.id

@@ -80,6 +80,7 @@ def bootstrap_company_defaults(company_id: int, country_code: str = 'KE') -> Non
         ):
             for code, value, desc in [
                 ('SHIF_PERCENT', 2.75, 'SHIF 2.75% of gross'),
+                ('SHIF_MIN_AMOUNT', 300, 'SHIF minimum monthly deduction amount'),
                 ('HOUSING_LEVY_PERCENT', 1.5, 'Housing Levy 1.5% employee'),
                 ('PERSONAL_RELIEF', 2400, 'Monthly personal relief (KES)'),
             ]:
@@ -207,6 +208,67 @@ def bootstrap_company_defaults(company_id: int, country_code: str = 'KE') -> Non
                 (2, 335001, 410000, 10),
                 (3, 410001, 10000000, 20),
                 (4, 10000001, None, 30),
+            ]:
+                db.session.add(
+                    PayeBracket(
+                        company_id=company_id,
+                        country_code=cc,
+                        effective_from=eff_from,
+                        bracket_order=order,
+                        min_amount=min_a,
+                        max_amount=max_a,
+                        rate_percent=rate,
+                    )
+                )
+
+    elif cc == 'TZ':
+        # Tanzania Mainland: PAYE (TRA monthly bands), NSSF 10% / 10% on gross, SDL 3.5%, WCF 1% (employer).
+        eff_from = date(2024, 1, 1)
+        if not (
+            db.session.query(StatutoryRate)
+            .filter(
+                StatutoryRate.company_id == company_id,
+                StatutoryRate.country_code == cc,
+                StatutoryRate.code == 'NSSF_EMPLOYEE_PERCENT',
+                StatutoryRate.effective_from == eff_from,
+            )
+            .first()
+        ):
+            for code, value, desc in [
+                ('NSSF_EMPLOYEE_PERCENT', 10, 'NSSF employee contribution (% of gross)'),
+                ('NSSF_EMPLOYER_PERCENT', 10, 'NSSF employer contribution (% of gross)'),
+                ('SDL_PERCENT', 3.5, 'Skills Development Levy — employer (% of gross)'),
+                ('WCF_PERCENT', 1, 'Workers Compensation Fund — employer private sector (% of gross)'),
+                ('SURTAX_PERCENT', 10, 'Surtax on monthly income above threshold (%)'),
+                ('SURTAX_THRESHOLD', 10000000, 'Monthly income threshold for surtax (TZS)'),
+                ('PERSONAL_RELIEF', 0, 'Tanzania monthly PAYE has no personal relief (set 0)'),
+            ]:
+                db.session.add(
+                    StatutoryRate(
+                        company_id=company_id,
+                        country_code=cc,
+                        code=code,
+                        effective_from=eff_from,
+                        value=value,
+                        description=desc,
+                    )
+                )
+
+        if not (
+            db.session.query(PayeBracket)
+            .filter(
+                PayeBracket.company_id == company_id,
+                PayeBracket.country_code == cc,
+                PayeBracket.effective_from == eff_from,
+            )
+            .first()
+        ):
+            for order, min_a, max_a, rate in [
+                (1, 0, 270000, 0),
+                (2, 270001, 520000, 8),
+                (3, 520001, 760000, 20),
+                (4, 760001, 1000000, 25),
+                (5, 1000001, None, 30),
             ]:
                 db.session.add(
                     PayeBracket(

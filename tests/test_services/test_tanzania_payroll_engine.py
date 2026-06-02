@@ -96,7 +96,7 @@ def test_surtax_above_ten_million():
 
 
 def test_paye_and_net_1_5m_gross(app_ctx, tenant_company):
-    """1.5M gross: PAYE 278k, NSSF 150k, net 1,072,000."""
+    """1.5M gross: NSSF 150k, taxable 1.35M, PAYE 233k, net 1,117,000."""
     cid = tenant_company
     _seed_tz_statutory(cid)
 
@@ -109,14 +109,15 @@ def test_paye_and_net_1_5m_gross(app_ctx, tenant_company):
     )
     assert calc['gross_pay'] == Decimal('1500000.00')
     assert calc['nssf_employee'] == Decimal('150000.00')
+    assert calc['taxable_pay'] == Decimal('1350000.00')
     assert calc['nssf_employer'] == Decimal('150000.00')
-    assert calc['paye'] == Decimal('278000.00')
+    assert calc['paye'] == Decimal('233000.00')
     assert calc['surtax'] == Decimal('0')
     assert calc['sdl_employer'] == Decimal('52500.00')
     assert calc['wcf_employer'] == Decimal('15000.00')
     assert calc['shif'] == Decimal('0')
     assert calc['housing_levy'] == Decimal('0')
-    assert calc['net_pay'] == Decimal('1072000.00')
+    assert calc['net_pay'] == Decimal('1117000.00')
     assert calc['payroll_engine'] == 'tanzania'
 
 
@@ -132,5 +133,6 @@ def test_router_tz_via_calculate_employee_payroll(app_ctx, tenant_company):
         statutory_country_code='TZ',
     )
     assert calc['payroll_engine'] == 'tanzania'
-    assert calc['paye'] == Decimal('18400.00')
+    assert calc['taxable_pay'] == Decimal('450000.00')
+    assert calc['paye'] == Decimal('14400.00')
     assert calc['nssf_employee'] == Decimal('50000.00')

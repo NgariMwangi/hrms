@@ -3,9 +3,9 @@ Tanzania Mainland monthly payroll engine.
 
 Order of operations:
 1. Gross pay (cash emoluments, prorated if partial month).
-2. PAYE on gross employment income (NSSF is not deducted before PAYE).
-3. Surtax on gross above TZS 10M (if configured).
-4. NSSF employee 10% and employer 10% on gross (no cap).
+2. NSSF employee 10% and employer 10% on gross (no cap).
+3. Taxable pay = gross − NSSF employee.
+4. PAYE and surtax on taxable pay.
 5. SDL and WCF — employer-only (tracked for cost reporting, not net pay).
 6. Voluntary pension / recurring / manual deductions.
 7. Net = gross − PAYE − surtax − NSSF employee − other employee deductions.
@@ -76,13 +76,13 @@ def calculate_employee_payroll_tanzania(
         raise ValueError('statutory_company_id is required for payroll calculation')
 
     cc = (statutory_country_code or ENGINE_COUNTRY_CODE).upper()[:2]
-    taxable_pay = gross_pay.quantize(Decimal('0.01'))
+    nssf_emp, nssf_empr = calculate_tanzania_nssf(gross_pay, pay_date, statutory_company_id, cc)
+    taxable_pay = (gross_pay - nssf_emp).quantize(Decimal('0.01'))
     if taxable_pay < 0:
         taxable_pay = Decimal('0')
 
     paye = calculate_tanzania_paye(taxable_pay, pay_date, statutory_company_id, cc)
     surtax = calculate_tanzania_surtax(taxable_pay, pay_date, statutory_company_id, cc)
-    nssf_emp, nssf_empr = calculate_tanzania_nssf(gross_pay, pay_date, statutory_company_id, cc)
     sdl_empr = calculate_tanzania_sdl(gross_pay, pay_date, statutory_company_id, cc)
     wcf_empr = calculate_tanzania_wcf(gross_pay, pay_date, statutory_company_id, cc)
 

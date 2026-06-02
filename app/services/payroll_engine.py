@@ -3,7 +3,7 @@ Payroll calculation router and Kenya engine.
 
 Kenya: PAYE after NSSF, SHIF, Housing Levy on gross; pension cap for PAYE.
 Uganda: see uganda_payroll_engine.py (PAYE on gross − LST, NSSF on gross, LST Jul–Oct).
-Tanzania: see tanzania_payroll_engine.py (PAYE on gross, NSSF 10%/10%, SDL/WCF employer-only).
+Tanzania: see tanzania_payroll_engine.py (taxable = gross − NSSF employee, PAYE on taxable, NSSF 10%/10%, SDL/WCF employer-only).
 """
 from datetime import date
 from decimal import Decimal

@@ -57,6 +57,26 @@ def _clean_employee_number(raw_value: str | None):
     return value or None
 
 
+def _parse_form_date(field_name: str, *, required: bool = False) -> date | None:
+    raw = (request.form.get(field_name) or '').strip()
+    if not raw:
+        if required:
+            raise ValueError(f'{field_name} is required')
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError(f'Invalid date for {field_name}') from exc
+
+
+def _get_employee_for_status_action(employee_id: int) -> Employee:
+    cid = require_company_id()
+    emp = db.session.get(Employee, employee_id)
+    if not emp or emp.company_id != cid:
+        abort(404)
+    return emp
+
+
 def _employee_with_relations(employee_id: int) -> Employee | None:
     """Load employee with org relationships for profile/detail views."""
     return (
@@ -674,7 +694,107 @@ def view(id):
     emp = _employee_with_relations(id)
     if not emp or not _can_view_employee(emp):
         abort(404)
-    return render_template('employees/view.html', employee=emp)
+    return render_template('employees/view.html', employee=emp, today=date.today())
+
+
+@employees_bp.route('/<int:id>/suspend', methods=['POST'])
+@login_required
+@permission_required('edit_employees')
+def suspend_employee(id):
+    emp = _get_employee_for_status_action(id)
+    try:
+        suspension_from = _parse_form_date('suspension_from', required=True)
+        suspension_to = _parse_form_date('suspension_to')
+        if suspension_to and suspension_to < suspension_from:
+            flash('Suspension end date cannot be before the start date.', 'danger')
+            return redirect(url_for('employees.view', id=id))
+        old = model_to_audit_dict(emp)
+        emp.status = 'suspended'
+        emp.suspension_from_date = suspension_from
+        emp.suspension_to_date = suspension_to
+        emp.termination_date = None
+        emp.termination_reason = None
+        db.session.commit()
+        log_update(
+            'Employee',
+            emp.id,
+            old,
+            model_to_audit_dict(emp),
+            user_id=current_user.id,
+            description='Employee suspended',
+        )
+        flash('Employee suspended.', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'danger')
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'Could not suspend employee: {exc}', 'danger')
+    return redirect(url_for('employees.view', id=id))
+
+
+@employees_bp.route('/<int:id>/terminate', methods=['POST'])
+@login_required
+@permission_required('edit_employees')
+def terminate_employee(id):
+    emp = _get_employee_for_status_action(id)
+    try:
+        termination_date = _parse_form_date('termination_date', required=True)
+        termination_reason = (request.form.get('termination_reason') or '').strip() or None
+        old = model_to_audit_dict(emp)
+        emp.status = 'terminated'
+        emp.termination_date = termination_date
+        emp.termination_reason = termination_reason
+        emp.suspension_from_date = None
+        emp.suspension_to_date = None
+        db.session.commit()
+        log_update(
+            'Employee',
+            emp.id,
+            old,
+            model_to_audit_dict(emp),
+            user_id=current_user.id,
+            description='Employee terminated',
+        )
+        flash('Employee terminated.', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'danger')
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'Could not terminate employee: {exc}', 'danger')
+    return redirect(url_for('employees.view', id=id))
+
+
+@employees_bp.route('/<int:id>/reactivate', methods=['POST'])
+@login_required
+@permission_required('edit_employees')
+def reactivate_employee(id):
+    emp = _get_employee_for_status_action(id)
+    if emp.status == 'active':
+        flash('Employee is already active.', 'info')
+        return redirect(url_for('employees.view', id=id))
+    try:
+        old = model_to_audit_dict(emp)
+        emp.status = 'active'
+        emp.suspension_from_date = None
+        emp.suspension_to_date = None
+        emp.termination_date = None
+        emp.termination_reason = None
+        db.session.commit()
+        log_update(
+            'Employee',
+            emp.id,
+            old,
+            model_to_audit_dict(emp),
+            user_id=current_user.id,
+            description='Employee reactivated',
+        )
+        flash('Employee set back to active.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'Could not reactivate employee: {exc}', 'danger')
+    return redirect(url_for('employees.view', id=id))
 
 
 @employees_bp.route('/<int:id>/photo')

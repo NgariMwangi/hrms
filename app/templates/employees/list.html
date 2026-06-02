@@ -58,7 +58,17 @@
                     <td>{{ e.full_name }}</td>
                     <td><span class="text-nowrap">{{ e.branch.name if e.branch else '—' }}</span></td>
                     <td>{{ e.department.name if e.department else '—' }}</td>
-                    <td><span class="badge bg-{{ 'success' if e.status == 'active' else 'secondary' }}">{{ e.status }}</span></td>
+                    <td>
+                        {% if e.status == 'active' %}
+                        <span class="badge bg-success">Active</span>
+                        {% elif e.status == 'suspended' %}
+                        <span class="badge bg-warning text-dark">Suspended</span>
+                        {% elif e.status == 'terminated' %}
+                        <span class="badge bg-danger">Terminated</span>
+                        {% else %}
+                        <span class="badge bg-secondary text-capitalize">{{ e.status.replace('_', ' ') }}</span>
+                        {% endif %}
+                    </td>
                     <td>{{ e.hire_date.strftime('%d %b %Y') if e.hire_date else '—' }}</td>
                     <td class="text-end"><a href="{{ url_for('employees.view', id=e.id) }}" class="btn btn-sm btn-outline-primary">View</a></td>
                 </tr>

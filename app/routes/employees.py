@@ -285,12 +285,35 @@ def benefits_index():
                 Employee.employee_number.ilike(f'%{search}%'),
             )
         )
-    rows = q.order_by(
-        EmployeeBenefit.payroll_year.desc().nullslast(),
-        EmployeeBenefit.payroll_month.desc().nullslast(),
-        EmployeeBenefit.created_at.desc(),
-    ).all()
+    rows = q.order_by(EmployeeBenefit.created_at.desc()).all()
     return render_template('employees/benefits_index.html', rows=rows)
+
+
+@employees_bp.route('/deductions')
+@login_required
+@permission_required('view_employees')
+def deductions_index():
+    """Organization-wide employee deductions listing."""
+    cid = require_company_id()
+    search = (request.args.get('q') or '').strip()
+
+    q = (
+        db.session.query(EmployeeDeduction)
+        .join(Employee, Employee.id == EmployeeDeduction.employee_id)
+        .options(joinedload(EmployeeDeduction.employee))
+        .filter(Employee.company_id == cid)
+    )
+    if search:
+        q = q.filter(
+            db.or_(
+                EmployeeDeduction.title.ilike(f'%{search}%'),
+                Employee.first_name.ilike(f'%{search}%'),
+                Employee.last_name.ilike(f'%{search}%'),
+                Employee.employee_number.ilike(f'%{search}%'),
+            )
+        )
+    rows = q.order_by(EmployeeDeduction.created_at.desc()).all()
+    return render_template('employees/deductions_index.html', rows=rows)
 
 
 @employees_bp.route('/probation-dates')
@@ -1013,6 +1036,18 @@ def salary(id):
                     db.session.commit()
                     flash('Allowance ended.', 'success')
             return redirect(url_for('employees.salary', id=id))
+        if action == 'delete_allowance':
+            ea_id = request.form.get('employee_allowance_id', type=int)
+            if ea_id:
+                ea = db.session.query(EmployeeAllowance).filter(
+                    EmployeeAllowance.id == ea_id,
+                    EmployeeAllowance.employee_id == id,
+                ).first()
+                if ea:
+                    db.session.delete(ea)
+                    db.session.commit()
+                    flash('Allowance deleted.', 'success')
+            return redirect(url_for('employees.salary', id=id))
 
     return render_template(
         'employees/salary.html',
@@ -1089,7 +1124,7 @@ def employee_deductions(id):
     assignments = (
         db.session.query(EmployeeDeduction)
         .filter(EmployeeDeduction.employee_id == id)
-        .order_by(EmployeeDeduction.effective_from.desc())
+        .order_by(EmployeeDeduction.created_at.desc())
         .all()
     )
     if request.method == 'POST':
@@ -1293,11 +1328,7 @@ def employee_benefits(id):
     assignments = (
         db.session.query(EmployeeBenefit)
         .filter(EmployeeBenefit.employee_id == id)
-        .order_by(
-            EmployeeBenefit.payroll_year.desc().nullslast(),
-            EmployeeBenefit.payroll_month.desc().nullslast(),
-            EmployeeBenefit.id.desc(),
-        )
+        .order_by(EmployeeBenefit.created_at.desc())
         .all()
     )
 

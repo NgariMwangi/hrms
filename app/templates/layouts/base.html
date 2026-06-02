@@ -53,6 +53,9 @@
                         <a class="nav-link {{ 'active' if ep == 'employees.benefits_index' else '' }}" href="{{ url_for('employees.benefits_index') }}">
                             <i class="bi bi-wallet2"></i> Employee Benefits
                         </a>
+                        <a class="nav-link {{ 'active' if ep == 'employees.deductions_index' else '' }}" href="{{ url_for('employees.deductions_index') }}">
+                            <i class="bi bi-dash-circle"></i> Employee Deductions
+                        </a>
                         <a class="nav-link {{ 'active' if ep and ep.startswith('casual_workers') else '' }}" href="{{ url_for('casual_workers.index') }}">
                             <i class="bi bi-person-workspace"></i> Casual Workers
                         </a>

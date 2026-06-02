@@ -16,7 +16,7 @@
 </div>
 <div class="alert alert-secondary py-2 small mb-3 d-none" id="entitlement-helper-none"></div>
 
-<form method="post" action="{{ url_for('leave.admin_request_leave') }}">
+<form method="post" action="{{ url_for('leave.admin_request_leave') }}" enctype="multipart/form-data">
     {{ form.hidden_tag() }}
     <div class="row g-3">
         <div class="col-md-6">
@@ -47,6 +47,7 @@
             {{ form.reason.label(class='form-label') }}
             {{ form.reason(class_='form-control', placeholder='Reason shown on the leave record (optional)') }}
         </div>
+        {% include 'leave/_leave_attachment.html' %}
         <div class="col-12">
             {{ form.admin_notes.label(class='form-label') }}
             {{ form.admin_notes(class_='form-control', placeholder='Internal notes (optional); stored with the record when approved immediately') }}

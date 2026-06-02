@@ -18,7 +18,7 @@
 </div>
 <div class="alert alert-secondary py-2 small mb-3 d-none" id="entitlement-helper-none"></div>
 
-<form method="post" action="{{ form_action or url_for('leave.request_leave') }}">
+<form method="post" action="{{ form_action or url_for('leave.request_leave') }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <div class="row g-3">
         <div class="col-md-6">
@@ -40,6 +40,7 @@
             {% for e in form.handover_to_id.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
         </div>
         <div class="col-12">{{ form.reason.label(class='form-label') }}{{ form.reason(class_='form-control') }}</div>
+        {% include 'leave/_leave_attachment.html' %}
         <div class="col-12">
             <button type="submit" class="btn btn-primary">{{ form_submit_label or 'Submit Request' }}</button>
             {% if form_action %}

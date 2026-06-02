@@ -2,7 +2,10 @@
 import calendar
 from decimal import Decimal
 
-from flask import Blueprint, abort, jsonify, render_template, redirect, url_for, flash, request
+import mimetypes
+import os
+
+from flask import Blueprint, abort, jsonify, render_template, redirect, url_for, flash, request, send_file
 from flask_login import login_required, current_user
 from sqlalchemy import extract, func
 
@@ -33,6 +36,11 @@ from app.services.leave_balance_service import (
     ensure_balance,
 )
 from app.services.public_holiday_service import public_holiday_dates_in_range
+from app.services.leave_document_service import (
+    delete_leave_request_document,
+    resolve_leave_document_full_path,
+    save_leave_request_document,
+)
 from app.services.leave_approval_service import (
     EDITABLE_STATUSES,
     LEAVE_STATUS_APPROVED,
@@ -61,6 +69,30 @@ leave_bp = Blueprint('leave', __name__)
 def _leave_request_is_editable(lr: LeaveRequest) -> bool:
     """Only before supervisor approval can the employee edit or delete."""
     return (lr.status or '').strip().lower() in EDITABLE_STATUSES
+
+
+def _leave_attachment_template_ctx(lr: LeaveRequest | None = None) -> dict:
+    return {
+        'existing_document': bool(lr and lr.document_path),
+        'existing_document_request_id': lr.id if lr else None,
+    }
+
+
+def _process_leave_supporting_upload(lr: LeaveRequest, employee_id: int) -> tuple[bool, str | None, bool]:
+    """
+    Optional supporting document for any leave type.
+    Returns (success, error_message, file_was_attached).
+    """
+    f = request.files.get('supporting_document')
+    if not f or not (getattr(f, 'filename', None) or '').strip():
+        return True, None, False
+    try:
+        if lr.document_path:
+            delete_leave_request_document(lr.document_path)
+        lr.document_path = save_leave_request_document(f, employee_id, lr.id)
+        return True, None, True
+    except ValueError as exc:
+        return False, str(exc), False
 
 
 def _leave_requests_visible_query(cid: int):
@@ -263,7 +295,9 @@ def request_leave():
         lt_q = lt_q.filter(LeaveType.company_id == emp_me.company_id)
     else:
         lt_q = lt_q.filter(LeaveType.company_id == require_company_id())
-    form.leave_type_id.choices = [(lt.id, lt.name) for lt in lt_q.order_by(LeaveType.name).all()]
+    leave_types = lt_q.order_by(LeaveType.name).all()
+    form.leave_type_id.choices = [(lt.id, lt.name) for lt in leave_types]
+    attachment_ctx = _leave_attachment_template_ctx()
     handover_required = _apply_handover_field(form, emp_id)
     if form.validate_on_submit():
         if not emp_id:
@@ -273,6 +307,7 @@ def request_leave():
                 form=form,
                 balance_preview_requires_employee_id=False,
                 handover_required=handover_required,
+                **attachment_ctx,
             )
         if handover_required and form.handover_to_id.data is None:
             flash('Choose a colleague to hand your duties over to for this leave.', 'danger')
@@ -281,6 +316,7 @@ def request_leave():
                 form=form,
                 balance_preview_requires_employee_id=False,
                 handover_required=handover_required,
+                **attachment_ctx,
             )
         ho_id = form.handover_to_id.data
         emp_self = db.session.get(Employee, emp_id)
@@ -299,6 +335,7 @@ def request_leave():
                     form=form,
                     balance_preview_requires_employee_id=False,
                     handover_required=handover_required,
+                    **attachment_ctx,
                 )
         lt = db.session.get(LeaveType, form.leave_type_id.data)
         if not lt or not emp_self or lt.company_id != emp_self.company_id:
@@ -308,6 +345,7 @@ def request_leave():
                 form=form,
                 balance_preview_requires_employee_id=False,
                 handover_required=handover_required,
+                **attachment_ctx,
             )
         days_requested = _days_requested_for_leave(
             lt,
@@ -325,6 +363,7 @@ def request_leave():
                 form=form,
                 balance_preview_requires_employee_id=False,
                 handover_required=handover_required,
+                **attachment_ctx,
             )
         lr = LeaveRequest(
             employee_id=emp_id,
@@ -337,14 +376,34 @@ def request_leave():
             status=initial_leave_status_for_employee(emp_self),
         )
         db.session.add(lr)
+        db.session.flush()
+        ok, upload_err, attached = _process_leave_supporting_upload(lr, emp_id)
+        if not ok:
+            db.session.rollback()
+            flash(upload_err, 'danger')
+            return render_template(
+                'leave/my_requests.html',
+                form=form,
+                balance_preview_requires_employee_id=False,
+                handover_required=handover_required,
+                **attachment_ctx,
+            )
         db.session.commit()
-        flash('Leave request submitted.', 'success')
+        if not attached:
+            flash(
+                'Leave request submitted. Attaching a supporting document is strongly recommended '
+                'to help approvers process your request.',
+                'warning',
+            )
+        else:
+            flash('Leave request submitted.', 'success')
         return redirect(url_for('leave.index'))
     return render_template(
         'leave/my_requests.html',
         form=form,
         balance_preview_requires_employee_id=False,
         handover_required=handover_required,
+        **attachment_ctx,
     )
 
 
@@ -372,6 +431,7 @@ def admin_request_leave():
 
     selected_emp = form.employee_id.data or pre_emp
     form.leave_type_id.choices = _active_leave_type_choices_for_employee(selected_emp)
+    attachment_ctx_admin = _leave_attachment_template_ctx()
     if selected_emp:
         handover_required_admin = _apply_handover_field(form, selected_emp)
     else:
@@ -392,6 +452,7 @@ def admin_request_leave():
                 form=form,
                 balance_preview_requires_employee_id=True,
                 handover_required=handover_required_admin,
+                **attachment_ctx_admin,
             )
         ho_id = form.handover_to_id.data
         if ho_id is not None:
@@ -408,6 +469,7 @@ def admin_request_leave():
                     form=form,
                     balance_preview_requires_employee_id=True,
                     handover_required=handover_required_admin,
+                    **attachment_ctx_admin,
                 )
         lt = db.session.get(LeaveType, form.leave_type_id.data)
         if not lt or not lt.is_active or lt.company_id != emp.company_id:
@@ -417,6 +479,7 @@ def admin_request_leave():
                 form=form,
                 balance_preview_requires_employee_id=True,
                 handover_required=handover_required_admin,
+                **attachment_ctx_admin,
             )
         days_requested = _days_requested_for_leave(
             lt,
@@ -434,6 +497,7 @@ def admin_request_leave():
                 form=form,
                 balance_preview_requires_employee_id=True,
                 handover_required=handover_required_admin,
+                **attachment_ctx_admin,
             )
         auto = bool(form.auto_approve.data)
         notes_parts = ['Recorded on behalf of employee by admin.']
@@ -455,12 +519,30 @@ def admin_request_leave():
         )
         db.session.add(lr)
         db.session.flush()
+        ok, upload_err, attached = _process_leave_supporting_upload(lr, emp_id)
+        if not ok:
+            db.session.rollback()
+            flash(upload_err, 'danger')
+            return render_template(
+                'leave/admin_request.html',
+                form=form,
+                balance_preview_requires_employee_id=True,
+                handover_required=handover_required_admin,
+                **attachment_ctx_admin,
+            )
         if auto:
             y0, y1 = lr.start_date.year, lr.end_date.year
             for y in range(y0, y1 + 1):
                 refresh_leave_balance_after_request_change(lr.employee_id, lr.leave_type_id, y)
         db.session.commit()
-        flash('Leave recorded.' + (' Approved.' if auto else ' Submitted as pending.'), 'success')
+        msg = 'Leave recorded.' + (' Approved.' if auto else ' Submitted as pending.')
+        if not attached:
+            flash(
+                msg + ' No supporting document was attached; consider asking the employee for proof.',
+                'warning',
+            )
+        else:
+            flash(msg, 'success')
         return redirect(url_for('leave.index'))
 
     return render_template(
@@ -468,6 +550,7 @@ def admin_request_leave():
         form=form,
         balance_preview_requires_employee_id=True,
         handover_required=handover_required_admin,
+        **attachment_ctx_admin,
     )
 
 
@@ -498,6 +581,7 @@ def edit_request(id):
         'form_submit_label': 'Save Changes',
         'form_title': 'Edit Leave Request',
         'edit_employee': emp,
+        **_leave_attachment_template_ctx(lr),
     }
 
     if request.method == 'GET':
@@ -563,8 +647,23 @@ def edit_request(id):
         lr.end_date = form.end_date.data
         lr.days_requested = days_requested
         lr.reason = form.reason.data
+        ok, upload_err, attached = _process_leave_supporting_upload(lr, lr.employee_id)
+        if not ok:
+            db.session.rollback()
+            flash(upload_err, 'danger')
+            return render_template(
+                'leave/my_requests.html',
+                form=form,
+                **edit_ctx,
+            )
         db.session.commit()
-        flash('Leave request updated.', 'success')
+        if not lr.document_path:
+            flash(
+                'Leave request updated. Attaching a supporting document is strongly recommended.',
+                'warning',
+            )
+        else:
+            flash('Leave request updated.', 'success')
         return redirect(url_for('leave.index'))
 
     return render_template(
@@ -590,10 +689,40 @@ def delete_request(id):
     if not _leave_request_is_editable(lr):
         flash('Only leave awaiting supervisor approval can be deleted.', 'warning')
         return redirect(url_for('leave.index'))
+    delete_leave_request_document(lr.document_path)
     db.session.delete(lr)
     db.session.commit()
     flash('Leave request deleted.', 'success')
     return redirect(url_for('leave.index'))
+
+
+@leave_bp.route('/<int:id>/document')
+@login_required
+def leave_request_document(id):
+    """Download or view supporting document for a leave request."""
+    lr = db.session.get(LeaveRequest, id)
+    if not lr:
+        abort(404)
+    emp = db.session.get(Employee, lr.employee_id)
+    if not emp or emp.company_id != require_company_id():
+        abort(404)
+    can_view = current_user.has_permission('approve_leave') or (current_user.employee_id or 0) == lr.employee_id
+    if not can_view:
+        abort(403)
+    if not lr.document_path:
+        abort(404)
+    full_path = resolve_leave_document_full_path(lr.document_path)
+    if not full_path:
+        flash('Supporting document file is missing from storage.', 'danger')
+        return redirect(url_for('leave.index'))
+    download = request.args.get('download') in {'1', 'true', 'yes'}
+    mime, _ = mimetypes.guess_type(full_path)
+    return send_file(
+        full_path,
+        mimetype=mime or 'application/octet-stream',
+        as_attachment=download,
+        download_name=os.path.basename(full_path),
+    )
 
 
 @leave_bp.route('/api/suggest-end-date')

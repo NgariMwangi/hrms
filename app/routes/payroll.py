@@ -994,6 +994,39 @@ def view_run(id):
     )
 
 
+@payroll_bp.route('/run/<int:id>/export-kenya.xlsx')
+@login_required
+@permission_required('view_payroll')
+def export_kenya_payroll_xlsx(id):
+    """Export Kenya staff payroll run to Excel."""
+    run_obj = db.session.get(PayrollRun, id)
+    cid = require_company_id()
+    if not run_obj or run_obj.company_id != cid:
+        abort(404)
+    if _cc(run_obj.country_code) != 'KE':
+        flash('Kenya payroll export is only available for KE payroll runs.', 'warning')
+        return redirect(url_for('payroll.view_run', id=id))
+
+    from app.services.kenya_payroll_export_service import (
+        build_kenya_payroll_workbook,
+        fetch_kenya_payroll_items,
+    )
+
+    items = fetch_kenya_payroll_items(run_obj.id, cid)
+    if not items:
+        flash('No staff payroll items to export. Calculate payroll first.', 'warning')
+        return redirect(url_for('payroll.view_run', id=id))
+
+    buffer = build_kenya_payroll_workbook(run_obj, items)
+    filename = f'payroll-ke-{run_obj.pay_year}-{run_obj.pay_month:02d}.xlsx'
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
 @payroll_bp.route('/run/<int:id>/approve', methods=['POST'])
 @login_required
 @permission_required('approve_payroll')

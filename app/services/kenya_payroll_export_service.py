@@ -14,6 +14,7 @@ TWO_DP = Decimal('0.01')
 
 # (header label, row dict key) — order defines Excel columns.
 KENYA_EXPORT_COLUMNS = [
+    ('Employee No.', 'employee_number'),
     ('Employee Name', 'employee_name'),
     ('Basic Salary', 'basic_salary'),
     ('Benefits', 'benefits'),
@@ -32,16 +33,17 @@ KENYA_EXPORT_COLUMNS = [
 
 KENYA_EXPORT_HEADERS = [label for label, _ in KENYA_EXPORT_COLUMNS]
 
-NUMERIC_KEYS = tuple(key for _, key in KENYA_EXPORT_COLUMNS if key != 'employee_name')
+TEXT_KEYS = frozenset({'employee_number', 'employee_name'})
+NUMERIC_KEYS = tuple(key for _, key in KENYA_EXPORT_COLUMNS if key not in TEXT_KEYS)
 
 # Excel display formats (values stay numeric for sorting/totals).
 EXCEL_MONEY_FORMAT = '#,##0.00'
 EXCEL_INTEGER_FORMAT = '#,##0'
 
-# 1-based column index of each numeric field (column A = 1 = employee name).
-NUMERIC_COL_INDEX = {
-    key: idx for idx, (_, key) in enumerate(KENYA_EXPORT_COLUMNS, start=1) if key != 'employee_name'
-}
+# 1-based column index of each field.
+COL_INDEX = {key: idx for idx, (_, key) in enumerate(KENYA_EXPORT_COLUMNS, start=1)}
+NUMERIC_COL_INDEX = {key: COL_INDEX[key] for key in NUMERIC_KEYS}
+ANALYSIS_LABEL_COL = COL_INDEX['employee_name']
 
 # Deduction line codes excluded when matching recurring/other columns by name.
 _STATUTORY_CODES = frozenset({
@@ -137,6 +139,7 @@ def nssf_employee_employer_total(employee_nssf_total: Decimal) -> Decimal:
 def kenya_export_row(item: PayrollItem) -> dict:
     emp = item.employee
     return {
+        'employee_number': (emp.employee_number or '').strip() if emp else '',
         'employee_name': emp.full_name if emp else f'Employee #{item.employee_id}',
         'basic_salary': basic_salary_total(item),
         'benefits': benefits_total(item),
@@ -157,7 +160,7 @@ def kenya_export_row(item: PayrollItem) -> dict:
 def _row_to_excel_cells(row: dict) -> list:
     cells = []
     for _, key in KENYA_EXPORT_COLUMNS:
-        if key == 'employee_name':
+        if key in TEXT_KEYS:
             cells.append(row[key])
         else:
             cells.append(float(row[key]))
@@ -170,6 +173,8 @@ def _analysis_row(label: str, totals: dict[str, Decimal], *, nssf_emp_employer: 
     for _, key in KENYA_EXPORT_COLUMNS:
         if key == 'employee_name':
             cells.append(label)
+        elif key == 'employee_number':
+            cells.append('')
         elif key == 'total_nssf' and nssf_emp_employer is not None:
             cells.append(float(nssf_emp_employer))
         elif nssf_emp_employer is not None:
@@ -186,6 +191,8 @@ def _employee_count_row(count: int) -> list:
     for _, key in KENYA_EXPORT_COLUMNS:
         if key == 'employee_name':
             cells.append('Total employees')
+        elif key == 'employee_number':
+            cells.append('')
         elif key == 'basic_salary':
             cells.append(count)
         else:
@@ -198,7 +205,7 @@ def _apply_workbook_number_formats(ws, first_data_row: int) -> None:
     last_row = ws.max_row
     money_cols = list(NUMERIC_COL_INDEX.values())
     for row_idx in range(first_data_row, last_row + 1):
-        label = ws.cell(row=row_idx, column=1).value
+        label = ws.cell(row=row_idx, column=ANALYSIS_LABEL_COL).value
         for col_idx in money_cols:
             cell = ws.cell(row=row_idx, column=col_idx)
             if cell.value is None or cell.value == '':
@@ -271,7 +278,8 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
 
     _apply_workbook_number_formats(ws, first_data_row)
 
-    ws.freeze_panes = 'A2'
+    # Freeze header row and first two columns (Employee No., Employee Name) when scrolling.
+    ws.freeze_panes = 'C2'
     for col in ws.columns:
         max_len = 0
         col_letter = col[0].column_letter

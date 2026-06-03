@@ -13,6 +13,7 @@ from app.services.kenya_payroll_export_service import (
 
 class _FakeEmployee:
     full_name = 'Jane Doe'
+    employee_number = 'E-1001'
 
 
 class _FakeItem:
@@ -71,6 +72,7 @@ def test_nssf_employee_employer_is_double():
 def test_kenya_export_row():
     item = _FakeItem()
     row = kenya_export_row(item)
+    assert row['employee_number'] == 'E-1001'
     assert row['employee_name'] == 'Jane Doe'
     assert row['basic_salary'] == Decimal('80000.00')
     assert row['benefits'] == Decimal('20000.00')

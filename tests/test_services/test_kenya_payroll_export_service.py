@@ -2,13 +2,20 @@
 from decimal import Decimal
 
 from app.services.kenya_payroll_export_service import (
+    KENYA_NITA_PER_EMPLOYEE,
     basic_salary_total,
     benefits_total,
+    compute_kenya_taxes_summary,
+    gross_pay_by_department,
     kenya_export_row,
     nssf_employee_employer_total,
     voluntary_pension_total,
     _named_deduction_total,
 )
+
+
+class _FakeDepartment:
+    name = 'Head office'
 
 
 class _FakeJobTitle:
@@ -19,6 +26,7 @@ class _FakeEmployee:
     full_name = 'Jane Doe'
     employee_number = 'E-1001'
     job_title = _FakeJobTitle()
+    department = _FakeDepartment()
 
 
 class _FakeItem:
@@ -31,6 +39,7 @@ class _FakeItem:
         self.shif = Decimal('2750')
         self.nssf_employee = Decimal('4320')
         self.paye = Decimal('15000')
+        self.housing_levy = Decimal('1500')
         self.earnings_breakdown = [
             {'code': 'BASIC', 'amount': 80000},
             {'code': 'BEN-1', 'name': 'Bonus', 'amount': 20000},
@@ -87,3 +96,33 @@ def test_kenya_export_row():
     assert row['welfare_kit'] == Decimal('500.00')
     assert row['total_deductions'] == Decimal('28000.00')
     assert row['net_pay'] == Decimal('72000.00')
+
+
+def test_gross_pay_by_department():
+    item = _FakeItem()
+    rows = gross_pay_by_department([item])
+    assert rows == [('Head office', Decimal('100000.00'))]
+
+
+def test_compute_kenya_taxes_summary():
+    item = _FakeItem()
+
+    class _Con:
+        consultant_number = '005'
+        full_name = 'Sammy Ndolo'
+
+    class _CI:
+        gross_pay = Decimal('300000')
+        net_pay = Decimal('285000')
+        withholding_tax = Decimal('15000')
+        consultant_id = 1
+        consultant = _Con()
+
+    summary = compute_kenya_taxes_summary([item], [_CI()])
+    assert summary['dept_gross'] == [('Head office', Decimal('100000.00'))]
+    assert summary['consultant_gross_rows'][0][1] == Decimal('300000.00')
+    assert summary['paye'] == Decimal('15000.00')
+    assert summary['wht'] == Decimal('15000.00')
+    assert summary['nita'] == KENYA_NITA_PER_EMPLOYEE
+    assert summary['total_gross'] == Decimal('400000.00')
+    assert summary['total_net'] == Decimal('357000.00')

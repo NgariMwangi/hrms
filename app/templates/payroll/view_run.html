@@ -48,8 +48,11 @@
     {% if run.status in ('approved', 'finance_reviewed', 'paid') and has_permission('view_payroll') %}
     <a href="{{ url_for('payroll.view_statutory_remitances', id=run.id) }}" class="btn btn-outline-primary">Statutory remittances</a>
     {% endif %}
-    {% if (run.country_code or 'KE')|upper == 'KE' and items and has_permission('view_payroll') %}
+    {% if (run.country_code or 'KE')|upper == 'KE' and (items or consultant_items) and has_permission('view_payroll') %}
     <a href="{{ url_for('payroll.export_kenya_payroll_xlsx', id=run.id) }}" class="btn btn-outline-success">Export Excel (Kenya)</a>
+    {% endif %}
+    {% if (run.country_code or '')|upper == 'UG' and items and has_permission('view_payroll') %}
+    <a href="{{ url_for('payroll.export_uganda_payroll_xlsx', id=run.id) }}" class="btn btn-outline-success">Export Excel (Uganda)</a>
     {% endif %}
     <a href="{{ url_for('payroll.index') }}" class="btn btn-outline-secondary">Back to list</a>
 </div>

@@ -12,21 +12,27 @@ from sqlalchemy.orm import joinedload
 
 TWO_DP = Decimal('0.01')
 
-KENYA_EXPORT_HEADERS = [
-    'Employee Name',
-    'Benefits',
-    'Gross Pay',
-    'Taxable Pay',
-    'SHIF',
-    'Total NSSF',
-    'Welfare Kit',
-    'SHELLOYEES SACCO',
-    'MAISHA BORA SACCO',
-    'Voluntary Pension',
-    'PAYE',
-    'total_deductions',
-    'NET PAY',
+# (header label, row dict key) — order defines Excel columns.
+KENYA_EXPORT_COLUMNS = [
+    ('Employee Name', 'employee_name'),
+    ('Basic Salary', 'basic_salary'),
+    ('Benefits', 'benefits'),
+    ('Gross Pay', 'gross_pay'),
+    ('Taxable Pay', 'taxable_pay'),
+    ('SHIF', 'shif'),
+    ('Total NSSF', 'total_nssf'),
+    ('Welfare Kit', 'welfare_kit'),
+    ('SHELLOYEES SACCO', 'shelloyees_sacco'),
+    ('MAISHA BORA SACCO', 'maisha_bora_sacco'),
+    ('Voluntary Pension', 'voluntary_pension'),
+    ('PAYE', 'paye'),
+    ('total_deductions', 'total_deductions'),
+    ('NET PAY', 'net_pay'),
 ]
+
+KENYA_EXPORT_HEADERS = [label for label, _ in KENYA_EXPORT_COLUMNS]
+
+NUMERIC_KEYS = tuple(key for _, key in KENYA_EXPORT_COLUMNS if key != 'employee_name')
 
 # Deduction line codes excluded when matching recurring/other columns by name.
 _STATUTORY_CODES = frozenset({
@@ -49,6 +55,14 @@ def _normalize_name(name: str) -> str:
 def _name_matches(name: str, *required_parts: str) -> bool:
     n = _normalize_name(name)
     return all(part.upper() in n for part in required_parts)
+
+
+def basic_salary_total(item: PayrollItem) -> Decimal:
+    """Basic salary from earnings breakdown (BASIC line)."""
+    for row in item.earnings_breakdown or []:
+        if str(row.get('code') or '').upper() == 'BASIC':
+            return _decimal(row.get('amount'))
+    return Decimal('0')
 
 
 def benefits_total(item: PayrollItem) -> Decimal:
@@ -106,10 +120,16 @@ def total_deductions(item: PayrollItem) -> Decimal:
     return (gross - net).quantize(TWO_DP)
 
 
+def nssf_employee_employer_total(employee_nssf_total: Decimal) -> Decimal:
+    """Employer matches employee NSSF contribution (2× employee total)."""
+    return (employee_nssf_total * 2).quantize(TWO_DP)
+
+
 def kenya_export_row(item: PayrollItem) -> dict:
     emp = item.employee
     return {
         'employee_name': emp.full_name if emp else f'Employee #{item.employee_id}',
+        'basic_salary': basic_salary_total(item),
         'benefits': benefits_total(item),
         'gross_pay': _decimal(item.gross_pay),
         'taxable_pay': _decimal(item.taxable_pay),
@@ -123,6 +143,33 @@ def kenya_export_row(item: PayrollItem) -> dict:
         'total_deductions': total_deductions(item),
         'net_pay': _decimal(item.net_pay),
     }
+
+
+def _row_to_excel_cells(row: dict) -> list:
+    cells = []
+    for _, key in KENYA_EXPORT_COLUMNS:
+        if key == 'employee_name':
+            cells.append(row[key])
+        else:
+            cells.append(float(row[key]))
+    return cells
+
+
+def _analysis_row(label: str, totals: dict[str, Decimal], *, nssf_emp_employer: Decimal | None = None) -> list:
+    """Build an analysis row; optional NSSF (Employee + Employer) only in Total NSSF column."""
+    cells = []
+    for _, key in KENYA_EXPORT_COLUMNS:
+        if key == 'employee_name':
+            cells.append(label)
+        elif key == 'total_nssf' and nssf_emp_employer is not None:
+            cells.append(float(nssf_emp_employer))
+        elif nssf_emp_employer is not None:
+            cells.append('')
+        elif key in totals:
+            cells.append(float(totals[key]))
+        else:
+            cells.append('')
+    return cells
 
 
 def fetch_kenya_payroll_items(run_id: int, company_id: int) -> list[PayrollItem]:
@@ -152,50 +199,34 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal='center')
 
-    numeric_keys = (
-        'benefits', 'gross_pay', 'taxable_pay', 'shif', 'total_nssf',
-        'welfare_kit', 'shelloyees_sacco', 'maisha_bora_sacco',
-        'voluntary_pension', 'paye', 'total_deductions', 'net_pay',
-    )
-    totals = {k: Decimal('0') for k in numeric_keys}
+    totals = {k: Decimal('0') for k in NUMERIC_KEYS}
 
     for item in items:
         row = kenya_export_row(item)
-        ws.append([
-            row['employee_name'],
-            float(row['benefits']),
-            float(row['gross_pay']),
-            float(row['taxable_pay']),
-            float(row['shif']),
-            float(row['total_nssf']),
-            float(row['welfare_kit']),
-            float(row['shelloyees_sacco']),
-            float(row['maisha_bora_sacco']),
-            float(row['voluntary_pension']),
-            float(row['paye']),
-            float(row['total_deductions']),
-            float(row['net_pay']),
-        ])
-        for k in numeric_keys:
+        ws.append(_row_to_excel_cells(row))
+        for k in NUMERIC_KEYS:
             totals[k] += row[k]
 
-    ws.append([
-        'TOTAL',
-        float(totals['benefits']),
-        float(totals['gross_pay']),
-        float(totals['taxable_pay']),
-        float(totals['shif']),
-        float(totals['total_nssf']),
-        float(totals['welfare_kit']),
-        float(totals['shelloyees_sacco']),
-        float(totals['maisha_bora_sacco']),
-        float(totals['voluntary_pension']),
-        float(totals['paye']),
-        float(totals['total_deductions']),
-        float(totals['net_pay']),
-    ])
-    for cell in ws[ws.max_row]:
-        cell.font = Font(bold=True)
+    # Blank row then analysis block
+    ws.append([])
+    analysis_header_row = ws.max_row + 1
+    ws.append(['ANALYSIS'] + [''] * (len(KENYA_EXPORT_HEADERS) - 1))
+    for cell in ws[analysis_header_row]:
+        cell.font = Font(bold=True, size=12)
+
+    ws.append(_analysis_row('Total (all employees)', totals))
+    nssf_combined = nssf_employee_employer_total(totals['total_nssf'])
+    ws.append(
+        _analysis_row(
+            'NSSF (Employee + Employer)',
+            totals,
+            nssf_emp_employer=nssf_combined,
+        )
+    )
+
+    for row_idx in range(analysis_header_row + 1, ws.max_row + 1):
+        for cell in ws[row_idx]:
+            cell.font = Font(bold=True)
 
     ws.freeze_panes = 'A2'
     for col in ws.columns:
@@ -204,7 +235,7 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
         for cell in col:
             if cell.value is not None:
                 max_len = max(max_len, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = min(max_len + 2, 36)
+        ws.column_dimensions[col_letter].width = min(max_len + 2, 40)
 
     out = BytesIO()
     wb.save(out)

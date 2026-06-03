@@ -2,8 +2,10 @@
 from decimal import Decimal
 
 from app.services.kenya_payroll_export_service import (
+    basic_salary_total,
     benefits_total,
     kenya_export_row,
+    nssf_employee_employer_total,
     voluntary_pension_total,
     _named_deduction_total,
 )
@@ -40,6 +42,11 @@ class _FakeItem:
         ]
 
 
+def test_basic_salary_from_breakdown():
+    item = _FakeItem()
+    assert basic_salary_total(item) == Decimal('80000.00')
+
+
 def test_benefits_total_sums_ben_lines():
     item = _FakeItem()
     assert benefits_total(item) == Decimal('20000.00')
@@ -57,10 +64,15 @@ def test_voluntary_pension_from_breakdown():
     assert voluntary_pension_total(item) == Decimal('5000.00')
 
 
+def test_nssf_employee_employer_is_double():
+    assert nssf_employee_employer_total(Decimal('4320')) == Decimal('8640.00')
+
+
 def test_kenya_export_row():
     item = _FakeItem()
     row = kenya_export_row(item)
     assert row['employee_name'] == 'Jane Doe'
+    assert row['basic_salary'] == Decimal('80000.00')
     assert row['benefits'] == Decimal('20000.00')
     assert row['gross_pay'] == Decimal('100000.00')
     assert row['total_nssf'] == Decimal('4320.00')

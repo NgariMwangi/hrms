@@ -34,6 +34,15 @@ KENYA_EXPORT_HEADERS = [label for label, _ in KENYA_EXPORT_COLUMNS]
 
 NUMERIC_KEYS = tuple(key for _, key in KENYA_EXPORT_COLUMNS if key != 'employee_name')
 
+# Excel display formats (values stay numeric for sorting/totals).
+EXCEL_MONEY_FORMAT = '#,##0.00'
+EXCEL_INTEGER_FORMAT = '#,##0'
+
+# 1-based column index of each numeric field (column A = 1 = employee name).
+NUMERIC_COL_INDEX = {
+    key: idx for idx, (_, key) in enumerate(KENYA_EXPORT_COLUMNS, start=1) if key != 'employee_name'
+}
+
 # Deduction line codes excluded when matching recurring/other columns by name.
 _STATUTORY_CODES = frozenset({
     'NSSF', 'SHIF', 'HOUSING_LEVY', 'PAYE',
@@ -172,6 +181,34 @@ def _analysis_row(label: str, totals: dict[str, Decimal], *, nssf_emp_employer: 
     return cells
 
 
+def _employee_count_row(count: int) -> list:
+    cells = []
+    for _, key in KENYA_EXPORT_COLUMNS:
+        if key == 'employee_name':
+            cells.append('Total employees')
+        elif key == 'basic_salary':
+            cells.append(count)
+        else:
+            cells.append('')
+    return cells
+
+
+def _apply_workbook_number_formats(ws, first_data_row: int) -> None:
+    """Comma-separated thousands on all money cells from first data row downward."""
+    last_row = ws.max_row
+    money_cols = list(NUMERIC_COL_INDEX.values())
+    for row_idx in range(first_data_row, last_row + 1):
+        label = ws.cell(row=row_idx, column=1).value
+        for col_idx in money_cols:
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if cell.value is None or cell.value == '':
+                continue
+            if label == 'Total employees' and col_idx == NUMERIC_COL_INDEX['basic_salary']:
+                cell.number_format = EXCEL_INTEGER_FORMAT
+            elif isinstance(cell.value, (int, float)):
+                cell.number_format = EXCEL_MONEY_FORMAT
+
+
 def fetch_kenya_payroll_items(run_id: int, company_id: int) -> list[PayrollItem]:
     return (
         db.session.query(PayrollItem)
@@ -200,12 +237,15 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
         cell.alignment = Alignment(horizontal='center')
 
     totals = {k: Decimal('0') for k in NUMERIC_KEYS}
+    first_data_row = 2
 
     for item in items:
         row = kenya_export_row(item)
         ws.append(_row_to_excel_cells(row))
         for k in NUMERIC_KEYS:
             totals[k] += row[k]
+
+    employee_count = len(items)
 
     # Blank row then analysis block
     ws.append([])
@@ -214,6 +254,7 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
     for cell in ws[analysis_header_row]:
         cell.font = Font(bold=True, size=12)
 
+    ws.append(_employee_count_row(employee_count))
     ws.append(_analysis_row('Total (all employees)', totals))
     nssf_combined = nssf_employee_employer_total(totals['total_nssf'])
     ws.append(
@@ -227,6 +268,8 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
     for row_idx in range(analysis_header_row + 1, ws.max_row + 1):
         for cell in ws[row_idx]:
             cell.font = Font(bold=True)
+
+    _apply_workbook_number_formats(ws, first_data_row)
 
     ws.freeze_panes = 'A2'
     for col in ws.columns:

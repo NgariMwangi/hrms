@@ -11,9 +11,14 @@ from app.services.kenya_payroll_export_service import (
 )
 
 
+class _FakeJobTitle:
+    name = 'Accountant'
+
+
 class _FakeEmployee:
     full_name = 'Jane Doe'
     employee_number = 'E-1001'
+    job_title = _FakeJobTitle()
 
 
 class _FakeItem:
@@ -74,6 +79,7 @@ def test_kenya_export_row():
     row = kenya_export_row(item)
     assert row['employee_number'] == 'E-1001'
     assert row['employee_name'] == 'Jane Doe'
+    assert row['job_title'] == 'Accountant'
     assert row['basic_salary'] == Decimal('80000.00')
     assert row['benefits'] == Decimal('20000.00')
     assert row['gross_pay'] == Decimal('100000.00')

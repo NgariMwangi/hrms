@@ -7,6 +7,7 @@ from decimal import Decimal
 from io import BytesIO
 
 from app.extensions import db
+from app.models.employee import Employee
 from app.models.payroll import PayrollItem, PayrollRun
 from sqlalchemy.orm import joinedload
 
@@ -16,6 +17,7 @@ TWO_DP = Decimal('0.01')
 KENYA_EXPORT_COLUMNS = [
     ('Employee No.', 'employee_number'),
     ('Employee Name', 'employee_name'),
+    ('Job Title', 'job_title'),
     ('Basic Salary', 'basic_salary'),
     ('Benefits', 'benefits'),
     ('Gross Pay', 'gross_pay'),
@@ -33,7 +35,7 @@ KENYA_EXPORT_COLUMNS = [
 
 KENYA_EXPORT_HEADERS = [label for label, _ in KENYA_EXPORT_COLUMNS]
 
-TEXT_KEYS = frozenset({'employee_number', 'employee_name'})
+TEXT_KEYS = frozenset({'employee_number', 'employee_name', 'job_title'})
 NUMERIC_KEYS = tuple(key for _, key in KENYA_EXPORT_COLUMNS if key not in TEXT_KEYS)
 
 # Excel display formats (values stay numeric for sorting/totals).
@@ -138,9 +140,13 @@ def nssf_employee_employer_total(employee_nssf_total: Decimal) -> Decimal:
 
 def kenya_export_row(item: PayrollItem) -> dict:
     emp = item.employee
+    job_title = ''
+    if emp and emp.job_title:
+        job_title = (emp.job_title.name or '').strip()
     return {
         'employee_number': (emp.employee_number or '').strip() if emp else '',
         'employee_name': emp.full_name if emp else f'Employee #{item.employee_id}',
+        'job_title': job_title,
         'basic_salary': basic_salary_total(item),
         'benefits': benefits_total(item),
         'gross_pay': _decimal(item.gross_pay),
@@ -175,6 +181,8 @@ def _analysis_row(label: str, totals: dict[str, Decimal], *, nssf_emp_employer: 
             cells.append(label)
         elif key == 'employee_number':
             cells.append('')
+        elif key == 'job_title':
+            cells.append('')
         elif key == 'total_nssf' and nssf_emp_employer is not None:
             cells.append(float(nssf_emp_employer))
         elif nssf_emp_employer is not None:
@@ -192,6 +200,8 @@ def _employee_count_row(count: int) -> list:
         if key == 'employee_name':
             cells.append('Total employees')
         elif key == 'employee_number':
+            cells.append('')
+        elif key == 'job_title':
             cells.append('')
         elif key == 'basic_salary':
             cells.append(count)
@@ -220,7 +230,7 @@ def fetch_kenya_payroll_items(run_id: int, company_id: int) -> list[PayrollItem]
     return (
         db.session.query(PayrollItem)
         .join(PayrollRun, PayrollRun.id == PayrollItem.payroll_run_id)
-        .options(joinedload(PayrollItem.employee))
+        .options(joinedload(PayrollItem.employee).joinedload(Employee.job_title))
         .filter(
             PayrollItem.payroll_run_id == run_id,
             PayrollRun.company_id == company_id,
@@ -278,8 +288,8 @@ def build_kenya_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> B
 
     _apply_workbook_number_formats(ws, first_data_row)
 
-    # Freeze header row and first two columns (Employee No., Employee Name) when scrolling.
-    ws.freeze_panes = 'C2'
+    # Freeze header row and employee identity columns (No., Name, Job Title) when scrolling.
+    ws.freeze_panes = 'D2'
     for col in ws.columns:
         max_len = 0
         col_letter = col[0].column_letter

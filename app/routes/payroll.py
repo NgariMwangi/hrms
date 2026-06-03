@@ -173,6 +173,7 @@ def run():
     preferred = _cc(request.args.get('country_code') or countries[0][0])
     if request.method == 'GET':
         form.country_code.data = preferred
+        form.pay_year.data = date.today().year
     if form.validate_on_submit():
         cc = _cc(form.country_code.data)
         existing = db.session.query(PayrollRun).filter(

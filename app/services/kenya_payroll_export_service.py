@@ -43,6 +43,55 @@ NUMERIC_KEYS = tuple(key for _, key in KENYA_EXPORT_COLUMNS if key not in TEXT_K
 # Excel display formats (values stay numeric for sorting/totals).
 EXCEL_MONEY_FORMAT = '#,##0.00'
 EXCEL_INTEGER_FORMAT = '#,##0'
+DEFAULT_MONEY_COLUMN_WIDTH = 16
+
+
+def autosize_worksheet_columns(
+    ws,
+    *,
+    money_column_indices: set[int] | None = None,
+    min_column_widths: dict[int, float] | None = None,
+    max_width: float = 44,
+) -> None:
+    """Size columns from displayed values (comma-formatted amounts need extra width)."""
+    from openpyxl.utils import get_column_letter
+
+    money_column_indices = money_column_indices or set()
+    min_column_widths = min_column_widths or {}
+    for col_idx in range(1, (ws.max_column or 1) + 1):
+        max_len = int(min_column_widths.get(col_idx, 8))
+        for row_idx in range(1, ws.max_row + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            val = cell.value
+            if val is None or val == '':
+                continue
+            if col_idx in money_column_indices and isinstance(val, (int, float)):
+                display = f'{float(val):,.2f}'
+            elif cell.number_format == EXCEL_INTEGER_FORMAT and isinstance(val, (int, float)):
+                display = f'{int(val):,}'
+            else:
+                display = str(val)
+            max_len = max(max_len, len(display))
+        letter = get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = min(max_len + 2, max_width)
+
+
+def min_column_widths_for_headers(
+    columns: list[tuple[str, str]],
+    text_keys: frozenset[str],
+    *,
+    text_defaults: dict[int, float] | None = None,
+    money_min: float = DEFAULT_MONEY_COLUMN_WIDTH,
+) -> dict[int, float]:
+    """Minimum widths from header labels and sensible defaults for text columns."""
+    text_defaults = text_defaults or {1: 12, 2: 28, 3: 22}
+    mins: dict[int, float] = {}
+    for idx, (label, key) in enumerate(columns, start=1):
+        if key in text_keys:
+            mins[idx] = max(text_defaults.get(idx, 10), len(label) + 2)
+        else:
+            mins[idx] = max(money_min, len(label) + 2)
+    return mins
 
 # 1-based column index of each field.
 COL_INDEX = {key: idx for idx, (_, key) in enumerate(KENYA_EXPORT_COLUMNS, start=1)}
@@ -507,7 +556,28 @@ def build_kenya_payroll_workbook(
             totals[k] += row[k]
 
     employee_count = len(items)
-    _apply_workbook_number_formats(ws, first_data_row)
+
+    # Per-column totals directly under the employee table
+    ws.append([])
+    analysis_header_row = ws.max_row + 1
+    ws.append(['ANALYSIS'] + [''] * (len(KENYA_EXPORT_HEADERS) - 1))
+    for cell in ws[analysis_header_row]:
+        cell.font = Font(bold=True, size=12)
+
+    ws.append(_employee_count_row(employee_count))
+    ws.append(_analysis_row('Total (all employees)', totals))
+    nssf_combined = nssf_employee_employer_total(totals['total_nssf'])
+    ws.append(
+        _analysis_row(
+            'NSSF (Employee + Employer)',
+            totals,
+            nssf_emp_employer=nssf_combined,
+        )
+    )
+
+    for row_idx in range(analysis_header_row + 1, ws.max_row + 1):
+        for cell in ws[row_idx]:
+            cell.font = Font(bold=True)
 
     if consultant_items:
         _append_consultants_section(ws, consultant_items)
@@ -515,16 +585,14 @@ def build_kenya_payroll_workbook(
     summary = compute_kenya_taxes_summary(items, consultant_items)
     _append_taxes_summary(ws, summary, employee_count)
 
+    _apply_workbook_number_formats(ws, first_data_row)
+
     ws.freeze_panes = 'D2'
-    for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            if cell.value is not None:
-                max_len = max(max_len, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = min(max_len + 2, 40)
-    ws.column_dimensions['A'].width = max(ws.column_dimensions['A'].width or 10, 28)
-    ws.column_dimensions['B'].width = max(ws.column_dimensions['B'].width or 10, 18)
+    autosize_worksheet_columns(
+        ws,
+        money_column_indices=set(NUMERIC_COL_INDEX.values()),
+        min_column_widths=min_column_widths_for_headers(KENYA_EXPORT_COLUMNS, TEXT_KEYS),
+    )
 
     out = BytesIO()
     wb.save(out)

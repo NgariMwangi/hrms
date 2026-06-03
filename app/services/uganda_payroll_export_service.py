@@ -14,8 +14,10 @@ from sqlalchemy.orm import joinedload
 from app.services.kenya_payroll_export_service import (
     EXCEL_INTEGER_FORMAT,
     EXCEL_MONEY_FORMAT,
+    autosize_worksheet_columns,
     benefits_total,
     basic_salary_total,
+    min_column_widths_for_headers,
     total_deductions,
     _decimal,
     _named_deduction_total,
@@ -114,8 +116,11 @@ def _employee_count_row(count: int) -> list:
 
 
 def _apply_workbook_number_formats(ws, first_data_row: int) -> None:
+    from openpyxl.styles import Alignment
+
     last_row = ws.max_row
     money_cols = list(NUMERIC_COL_INDEX.values())
+    money_align = Alignment(horizontal='right')
     for row_idx in range(first_data_row, last_row + 1):
         label = ws.cell(row=row_idx, column=ANALYSIS_LABEL_COL).value
         for col_idx in money_cols:
@@ -126,6 +131,7 @@ def _apply_workbook_number_formats(ws, first_data_row: int) -> None:
                 cell.number_format = EXCEL_INTEGER_FORMAT
             elif isinstance(cell.value, (int, float)):
                 cell.number_format = EXCEL_MONEY_FORMAT
+                cell.alignment = money_align
 
 
 def fetch_uganda_payroll_items(run_id: int, company_id: int) -> list[PayrollItem]:
@@ -153,7 +159,8 @@ def build_uganda_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> 
     ws.append(UGANDA_EXPORT_HEADERS)
     for cell in ws[1]:
         cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal='center')
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+    ws.row_dimensions[1].height = 32
 
     totals = {k: Decimal('0') for k in NUMERIC_KEYS}
     first_data_row = 2
@@ -182,13 +189,11 @@ def build_uganda_payroll_workbook(run: PayrollRun, items: list[PayrollItem]) -> 
     _apply_workbook_number_formats(ws, first_data_row)
     ws.freeze_panes = FREEZE_PANES
 
-    for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for cell in col:
-            if cell.value is not None:
-                max_len = max(max_len, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = min(max_len + 2, 40)
+    autosize_worksheet_columns(
+        ws,
+        money_column_indices=set(NUMERIC_COL_INDEX.values()),
+        min_column_widths=min_column_widths_for_headers(UGANDA_EXPORT_COLUMNS, TEXT_KEYS),
+    )
 
     out = BytesIO()
     wb.save(out)

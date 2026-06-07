@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from html import escape
 
 from flask import current_app, url_for
@@ -11,7 +12,7 @@ from app.extensions import db
 from app.models.employee import Employee
 from app.models.leave import LeaveRequest
 from app.models.user import Permission, Role, RolePermission, User, UserRole
-from app.services.brevo_service import send_transactional_email
+from app.services.brevo_service import normalize_hr_sender_email, send_transactional_email
 from app.services.leave_approval_service import (
     LEAVE_STATUS_APPROVED,
     LEAVE_STATUS_PENDING,
@@ -57,7 +58,7 @@ def _hr_notify_addresses(company_id: int) -> list[str]:
     configured = (current_app.config.get('LEAVE_HR_NOTIFY_EMAIL') or '').strip()
     if not configured:
         configured = (current_app.config.get('BREVO_SENDER_EMAIL') or '').strip()
-    addresses = {a.strip().lower() for a in configured.split(',') if a.strip()}
+    addresses = {normalize_hr_sender_email(a) for a in configured.split(',') if a.strip()}
 
     perm = db.session.query(Permission).filter(Permission.code == 'approve_leave').first()
     if perm:
@@ -76,7 +77,7 @@ def _hr_notify_addresses(company_id: int) -> list[str]:
         )
         for (email,) in rows:
             if email and str(email).strip():
-                addresses.add(str(email).strip().lower())
+                addresses.add(normalize_hr_sender_email(str(email).strip()))
 
     return sorted(addresses)
 
@@ -94,6 +95,14 @@ def _load_leave_request(leave_request_id: int) -> LeaveRequest | None:
     )
 
 
+def _format_leave_days(days) -> str:
+    """Show whole days without decimal places (e.g. 5.00 → 5)."""
+    d = Decimal(str(days or 0))
+    if d == d.to_integral_value():
+        return str(int(d))
+    return str(d.normalize()).rstrip('0').rstrip('.')
+
+
 def _leave_summary_html(lr: LeaveRequest) -> str:
     emp = lr.employee
     lt = lr.leave_type
@@ -105,7 +114,7 @@ def _leave_summary_html(lr: LeaveRequest) -> str:
       <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Employee</td><td><strong>{emp_name}</strong></td></tr>
       <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Leave type</td><td>{lt_name}</td></tr>
       <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Dates</td><td>{lr.start_date:%d %b %Y} – {lr.end_date:%d %b %Y}</td></tr>
-      <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Days</td><td>{lr.days_requested}</td></tr>
+      <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Days</td><td>{_format_leave_days(lr.days_requested)}</td></tr>
       <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Reason</td><td>{reason}</td></tr>
       <tr><td style="padding:4px 12px 4px 0;color:#64748b;">Status</td><td>{escape(leave_status_label(lr.status))}</td></tr>
     </table>
@@ -146,7 +155,7 @@ def notify_leave_submitted(leave_request_id: int) -> None:
     """
     text = (
         f'New leave request from {emp.full_name}\n'
-        f'{lr.start_date} to {lr.end_date} ({lr.days_requested} days)\n'
+        f'{lr.start_date} to {lr.end_date} ({_format_leave_days(lr.days_requested)} days)\n'
         f'Review: {approve_link}\n'
     )
 
@@ -200,7 +209,7 @@ def notify_leave_submitted(leave_request_id: int) -> None:
         emp_text = (
             f'Hello {emp.first_name},\n\n'
             f'{wait_text}\n\n'
-            f'{lr.start_date} to {lr.end_date} ({lr.days_requested} days)\n'
+            f'{lr.start_date} to {lr.end_date} ({_format_leave_days(lr.days_requested)} days)\n'
             f'Status: {leave_status_label(lr.status)}\n\n'
             'You will receive another email when your supervisor or HR responds.\n'
         )

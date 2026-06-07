@@ -51,12 +51,11 @@ class Config:
     RATE_LIMIT_AUTH = '50 per minute'
     PASSWORD_RESET_EXPIRY_SECONDS = int(os.environ.get('PASSWORD_RESET_EXPIRY_SECONDS', '3600'))
 
-    # Brevo transactional email (password reset)
+    # Brevo transactional email (password reset, leave notifications)
     BREVO_API_KEY = os.environ.get('BREVO_API_KEY') or ''
-    BREVO_SENDER_EMAIL = os.environ.get('BREVO_SENDER_EMAIL') or ''
-    BREVO_SENDER_NAME = os.environ.get('BREVO_SENDER_NAME') or 'HRMS'
-    # Leave workflow notifications (defaults to BREVO sender if unset)
-    LEAVE_HR_NOTIFY_EMAIL = os.environ.get('LEAVE_HR_NOTIFY_EMAIL') or ''
+    BREVO_SENDER_EMAIL = os.environ.get('BREVO_SENDER_EMAIL') or 'hr@nexgenfuelworks.com'
+    BREVO_SENDER_NAME = os.environ.get('BREVO_SENDER_NAME') or 'HR NexGen Fuelworks'
+    LEAVE_HR_NOTIFY_EMAIL = os.environ.get('LEAVE_HR_NOTIFY_EMAIL') or 'hr@nexgenfuelworks.com'
     APP_BASE_URL = os.environ.get('APP_BASE_URL') or ''  # e.g. https://hrms.example.com
     APP_NAME = os.environ.get('APP_NAME') or 'HRMS Kenya'
 

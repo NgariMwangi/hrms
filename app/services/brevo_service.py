@@ -9,6 +9,16 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
+DEFAULT_HR_SENDER_EMAIL = 'hr@nexgenfuelworks.com'
+LEGACY_SENDER_EMAIL = 'info@nexgenfuelworks.com'
+
+
+def normalize_hr_sender_email(value: str | None) -> str:
+    """Use hr@ for all outbound mail; migrate away from legacy info@."""
+    email = (value or '').strip().lower()
+    if not email or email == LEGACY_SENDER_EMAIL:
+        return DEFAULT_HR_SENDER_EMAIL
+    return email
 
 
 def brevo_configured() -> bool:
@@ -26,8 +36,8 @@ def send_transactional_email(
     Send one email through Brevo. Returns True on success, False on failure or missing config.
     """
     api_key = (current_app.config.get('BREVO_API_KEY') or '').strip()
-    sender_email = (current_app.config.get('BREVO_SENDER_EMAIL') or '').strip()
-    sender_name = (current_app.config.get('BREVO_SENDER_NAME') or 'HRMS').strip() or 'HRMS'
+    sender_email = normalize_hr_sender_email(current_app.config.get('BREVO_SENDER_EMAIL'))
+    sender_name = (current_app.config.get('BREVO_SENDER_NAME') or 'HR NexGen Fuelworks').strip() or 'HR NexGen Fuelworks'
 
     if not api_key or not sender_email:
         logger.warning('Brevo not configured (BREVO_API_KEY / BREVO_SENDER_EMAIL); email not sent to %s', to_email)

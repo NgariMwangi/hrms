@@ -1,7 +1,7 @@
 """Leave notification email helpers."""
 from decimal import Decimal
 
-from app.services.leave_notification_service import _employee_inbox, _manager_inbox
+from app.services.leave_notification_service import _employee_inbox, _format_leave_days, _manager_inbox
 
 
 class _User:
@@ -32,3 +32,13 @@ def test_manager_inbox_from_manager_record():
     manager = _Emp(user=_User('boss@co.com'))
     emp = _Emp(manager=manager, manager_id=99)
     assert _manager_inbox(emp) == 'boss@co.com'
+
+
+def test_format_leave_days_removes_decimals():
+    assert _format_leave_days(Decimal('5.00')) == '5'
+    assert _format_leave_days(Decimal('1.00')) == '1'
+    assert _format_leave_days(3) == '3'
+
+
+def test_format_leave_days_keeps_half_days():
+    assert _format_leave_days(Decimal('0.5')) == '0.5'

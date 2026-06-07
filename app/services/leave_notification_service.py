@@ -5,6 +5,7 @@ import logging
 from html import escape
 
 from flask import current_app, url_for
+from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.employee import Employee

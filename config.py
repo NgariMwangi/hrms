@@ -55,6 +55,8 @@ class Config:
     BREVO_API_KEY = os.environ.get('BREVO_API_KEY') or ''
     BREVO_SENDER_EMAIL = os.environ.get('BREVO_SENDER_EMAIL') or ''
     BREVO_SENDER_NAME = os.environ.get('BREVO_SENDER_NAME') or 'HRMS'
+    # Leave workflow notifications (defaults to BREVO sender if unset)
+    LEAVE_HR_NOTIFY_EMAIL = os.environ.get('LEAVE_HR_NOTIFY_EMAIL') or ''
     APP_BASE_URL = os.environ.get('APP_BASE_URL') or ''  # e.g. https://hrms.example.com
     APP_NAME = os.environ.get('APP_NAME') or 'HRMS Kenya'
 

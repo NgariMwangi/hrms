@@ -5,7 +5,7 @@ from decimal import Decimal
 import mimetypes
 import os
 
-from flask import Blueprint, abort, jsonify, render_template, redirect, url_for, flash, request, send_file
+from flask import Blueprint, abort, jsonify, render_template, redirect, url_for, flash, request, send_file, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import extract, func
 
@@ -40,6 +40,10 @@ from app.services.leave_document_service import (
     delete_leave_request_document,
     resolve_leave_document_full_path,
     save_leave_request_document,
+)
+from app.services.leave_notification_service import (
+    notify_leave_responded,
+    notify_leave_submitted,
 )
 from app.services.leave_approval_service import (
     EDITABLE_STATUSES,
@@ -389,6 +393,10 @@ def request_leave():
                 **attachment_ctx,
             )
         db.session.commit()
+        try:
+            notify_leave_submitted(lr.id)
+        except Exception:
+            current_app.logger.exception('Leave submission email failed for request %s', lr.id)
         if not attached:
             flash(
                 'Leave request submitted. Attaching a supporting document is strongly recommended '
@@ -535,6 +543,13 @@ def admin_request_leave():
             for y in range(y0, y1 + 1):
                 refresh_leave_balance_after_request_change(lr.employee_id, lr.leave_type_id, y)
         db.session.commit()
+        try:
+            if auto:
+                notify_leave_responded(lr.id, actor_stage='hr', action='approve')
+            else:
+                notify_leave_submitted(lr.id)
+        except Exception:
+            current_app.logger.exception('Leave admin submission email failed for request %s', lr.id)
         msg = 'Leave recorded.' + (' Approved.' if auto else ' Submitted as pending.')
         if not attached:
             flash(
@@ -999,6 +1014,10 @@ def approve(id):
             for y in range(y0, y1 + 1):
                 refresh_leave_balance_after_request_change(lr.employee_id, lr.leave_type_id, y)
         db.session.commit()
+        try:
+            notify_leave_responded(lr.id, actor_stage=stage, action=action)
+        except Exception:
+            current_app.logger.exception('Leave response email failed for request %s', lr.id)
         flash('Leave request updated.', 'success')
         return redirect(url_for('leave.index'))
     stage_labels = {'supervisor': 'Supervisor', 'hr': 'HR'}

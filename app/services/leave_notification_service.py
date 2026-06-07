@@ -169,6 +169,44 @@ def notify_leave_submitted(leave_request_id: int) -> None:
         )
         _send_leave_email([manager_email], sup_subject, sup_html, sup_text)
 
+    employee_email = _employee_inbox(emp)
+    if employee_email:
+        if lr.status == LEAVE_STATUS_PENDING:
+            wait_msg = (
+                'Your leave request has been received. Please wait for your '
+                '<strong>supervisor</strong> and then <strong>HR</strong> to review and approve it.'
+            )
+            wait_text = (
+                'Your leave request has been received. Please wait for your '
+                'supervisor and then HR to review and approve it.'
+            )
+        else:
+            wait_msg = (
+                'Your leave request has been received. Please wait for '
+                '<strong>HR</strong> to review and approve it.'
+            )
+            wait_text = (
+                'Your leave request has been received. Please wait for HR to review and approve it.'
+            )
+        emp_subject = f'{app_name} — Leave request submitted'
+        emp_html = f"""
+        <p>Hello {escape(emp.first_name)},</p>
+        <p>{wait_msg}</p>
+        {summary}
+        <p>You will receive another email when your supervisor or HR responds.</p>
+        <p style="color:#64748b;font-size:12px;">{escape(app_name)}</p>
+        """
+        emp_text = (
+            f'Hello {emp.first_name},\n\n'
+            f'{wait_text}\n\n'
+            f'{lr.start_date} to {lr.end_date} ({lr.days_requested} days)\n'
+            f'Status: {leave_status_label(lr.status)}\n\n'
+            'You will receive another email when your supervisor or HR responds.\n'
+        )
+        _send_leave_email([employee_email], emp_subject, emp_html, emp_text)
+    else:
+        logger.warning('Leave submission confirmation skipped: no email for employee %s', emp.id)
+
 
 def notify_leave_responded(
     leave_request_id: int,

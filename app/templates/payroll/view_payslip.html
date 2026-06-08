@@ -23,6 +23,18 @@
             >
                 <i class="bi bi-file-earmark-pdf me-1"></i>Export PDF
             </a>
+            {% if has_permission('process_payroll') and item.payroll_run.status in ('approved', 'finance_reviewed', 'paid') %}
+            <form
+                method="post"
+                action="{{ url_for('payroll.email_payslip', run_id=item.payroll_run_id, employee_id=item.employee_id) }}"
+                class="d-inline"
+            >
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-envelope me-1"></i>Email payslip
+                </button>
+            </form>
+            {% endif %}
             {% if has_permission('view_payroll') %}
             <a href="{{ url_for('payroll.view_run', id=item.payroll_run_id) }}" class="btn btn-outline-secondary btn-sm">Back to run</a>
             {% elif current_user.employee_id == item.employee_id %}

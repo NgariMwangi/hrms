@@ -1,4 +1,5 @@
 """Send transactional email via Brevo (Sendinblue) API."""
+import base64
 import json
 import logging
 from urllib.error import HTTPError, URLError
@@ -31,6 +32,7 @@ def send_transactional_email(
     html_content: str,
     *,
     text_content: str | None = None,
+    attachments: list[tuple[str, bytes]] | None = None,
 ) -> bool:
     """
     Send one email through Brevo. Returns True on success, False on failure or missing config.
@@ -51,6 +53,15 @@ def send_transactional_email(
     }
     if text_content:
         payload['textContent'] = text_content
+    if attachments:
+        payload['attachment'] = [
+            {
+                'name': name,
+                'content': base64.b64encode(content).decode('ascii'),
+            }
+            for name, content in attachments
+            if name and content
+        ]
 
     req = Request(
         BREVO_API_URL,

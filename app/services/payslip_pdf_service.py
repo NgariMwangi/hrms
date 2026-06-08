@@ -1,7 +1,10 @@
 """Generate compact employee payslip PDF (ReportLab)."""
+import re
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 
+from flask import current_app
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -98,8 +101,114 @@ def _payslip_lines_table(
     return table
 
 
+def earnings_lines_for_payslip(item) -> list[dict]:
+    """Positive earnings rows from stored breakdown, ordered for payslip display."""
+    lines = []
+    for row in item.earnings_breakdown or []:
+        try:
+            amt = Decimal(str(row.get('amount') or 0))
+        except (TypeError, ValueError):
+            continue
+        if amt == 0:
+            continue
+        code = str(row.get('code') or '').upper()
+        lines.append({
+            'code': code,
+            'name': (row.get('name') or row.get('code') or 'Earning').strip(),
+            'amount': amt,
+        })
+    sort_rank = {'BASIC': 0, 'HOUSE': 10, 'TRANSPORT': 11, 'MEAL': 12, 'OTHER_ALLOW': 13, 'OTHER_EARN': 90, 'OVERTIME': 99}
+
+    def _sort_key(line):
+        code = line['code']
+        if code.startswith('BEN-'):
+            return (50, line['name'].lower())
+        return (sort_rank.get(code, 40), line['name'].lower())
+
+    lines.sort(key=_sort_key)
+    return lines
+
+
+def build_payslip_context(item) -> dict:
+    from app.services.statutory_service import get_personal_relief
+    from app.utils.currency import currency_for_employee
+
+    dd = item.deductions_breakdown or []
+    run = item.payroll_run
+    period_date = date(run.pay_year, run.pay_month, 1)
+    emp_ps = item.employee
+    scc = (emp_ps.branch.country_code if emp_ps and emp_ps.branch else 'KE').upper()[:2]
+    personal_relief = get_personal_relief(period_date, emp_ps.company_id, scc) if emp_ps else Decimal('0')
+    nssf_tier_1 = next((d.get('amount', 0) for d in dd if d.get('code') == 'NSSF_TIER1'), 0)
+    nssf_tier_2 = next((d.get('amount', 0) for d in dd if d.get('code') == 'NSSF_TIER2'), 0)
+    has_nssf_tiers = any((d.get('code') or '').startswith('NSSF_TIER') for d in dd)
+    show_nssf_tiers = has_nssf_tiers and scc == 'KE'
+    show_shif = Decimal(str(item.shif or 0)) > 0
+    show_housing_levy = Decimal(str(item.housing_levy or 0)) > 0
+    show_personal_relief = Decimal(str(personal_relief or 0)) > 0
+    allowable_deductions = item.gross_pay - item.taxable_pay
+    earnings_lines = earnings_lines_for_payslip(item)
+    other_deduction_lines = []
+    pension_percent_amount = Decimal('0')
+    pension_fixed_amount = Decimal('0')
+    for d in dd:
+        c = d.get('code') or ''
+        if c == 'PENSION_PERCENT':
+            try:
+                pension_percent_amount += Decimal(str(d.get('amount') or 0))
+            except Exception:
+                pass
+            continue
+        if c == 'PENSION_FIXED':
+            try:
+                pension_fixed_amount += Decimal(str(d.get('amount') or 0))
+            except Exception:
+                pass
+            continue
+        if c.startswith('DED_') or c.startswith('MANUAL_') or c == 'OTHER':
+            try:
+                amt = float(d.get('amount') or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if amt == 0:
+                continue
+            other_deduction_lines.append(d)
+    payslip_currency = currency_for_employee(
+        item.employee,
+        app_default=current_app.config.get('DEFAULT_CURRENCY', 'KES'),
+    )
+    company_name = run.company.name if run and run.company else None
+    return {
+        'item': item,
+        'nssf_tier_1': nssf_tier_1,
+        'nssf_tier_2': nssf_tier_2,
+        'allowable_deductions': allowable_deductions,
+        'personal_relief': personal_relief,
+        'period_date': period_date,
+        'other_deduction_lines': other_deduction_lines,
+        'payslip_currency': payslip_currency,
+        'statutory_country_code': scc,
+        'show_nssf_tiers': show_nssf_tiers,
+        'show_shif': show_shif,
+        'show_housing_levy': show_housing_levy,
+        'show_personal_relief': show_personal_relief,
+        'earnings_lines': earnings_lines,
+        'pension_percent_amount': pension_percent_amount,
+        'pension_fixed_amount': pension_fixed_amount,
+        'company_name': company_name,
+    }
+
+
+def payslip_pdf_filename(item) -> str:
+    run = item.payroll_run
+    emp = item.employee
+    slug = (emp.employee_number if emp and emp.employee_number else f'emp-{item.employee_id}').strip()
+    slug = re.sub(r'[^\w\-]+', '-', slug) or f'emp-{item.employee_id}'
+    return f'payslip-{run.pay_year}-{run.pay_month:02d}-{slug}.pdf'
+
+
 def build_payslip_pdf(ctx: dict) -> bytes:
-    """Build compact payslip PDF from payroll._build_payslip_context."""
+    """Build compact payslip PDF from build_payslip_context."""
     item = ctx['item']
     emp = item.employee
     currency = ctx['payslip_currency']

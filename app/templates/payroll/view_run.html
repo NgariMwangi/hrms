@@ -54,6 +54,20 @@
     {% if (run.country_code or '')|upper == 'UG' and items and has_permission('view_payroll') %}
     <a href="{{ url_for('payroll.export_uganda_payroll_xlsx', id=run.id) }}" class="btn btn-outline-success">Export Excel (Uganda)</a>
     {% endif %}
+    {% if run.status in ('approved', 'finance_reviewed', 'paid') and items and has_permission('process_payroll') %}
+    <form
+        method="post"
+        action="{{ url_for('payroll.email_payslips_for_run', id=run.id) }}"
+        class="d-inline"
+        onsubmit="return confirm('Email payslips to all staff with an email address on file?');"
+    >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="confirm" value="1"/>
+        <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-envelope me-1"></i>Email all payslips
+        </button>
+    </form>
+    {% endif %}
     <a href="{{ url_for('payroll.index') }}" class="btn btn-outline-secondary">Back to list</a>
 </div>
 <form method="get" class="row g-2 mb-3">
@@ -146,7 +160,22 @@
             <td>{{ "{:,.2f}".format(item.housing_levy|float) }}</td>
             <td>{{ "{:,.2f}".format(item.other_deductions|float) }}</td>
             <td>{{ "{:,.2f}".format(item.net_pay|float) }}</td>
-            <td><a href="{{ url_for('payroll.view_payslip', run_id=run.id, employee_id=item.employee_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a></td>
+            <td class="text-nowrap">
+                <a href="{{ url_for('payroll.view_payslip', run_id=run.id, employee_id=item.employee_id) }}" class="btn btn-sm btn-outline-primary">Payslip</a>
+                {% if run.status in ('approved', 'finance_reviewed', 'paid') and has_permission('process_payroll') %}
+                <form
+                    method="post"
+                    action="{{ url_for('payroll.email_payslip', run_id=run.id, employee_id=item.employee_id) }}"
+                    class="d-inline"
+                >
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <input type="hidden" name="next" value="{{ url_for('payroll.view_run', id=run.id, tab=tab, q=q or none) }}"/>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Email payslip to employee">
+                        <i class="bi bi-envelope"></i>
+                    </button>
+                </form>
+                {% endif %}
+            </td>
         </tr>
         {% else %}
         <tr><td colspan="9" class="text-muted">No staff items. Run calculation first.</td></tr>

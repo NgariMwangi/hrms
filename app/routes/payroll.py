@@ -1,6 +1,5 @@
 """Payroll processing and history."""
 from decimal import Decimal
-import re
 from io import BytesIO
 
 from flask import Blueprint, abort, render_template, redirect, url_for, flash, request, current_app, send_file
@@ -38,6 +37,8 @@ from app.services.statutory_remittance_service import (
     replace_statutory_remitances_for_run,
     institution_totals_for_run,
 )
+from app.services.payslip_pdf_service import build_payslip_context, build_payslip_pdf, payslip_pdf_filename
+from app.services.payslip_email_service import send_payslip_email, send_payslips_for_run
 from app.services.audit_service import log_update, log_create, model_to_audit_dict
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
@@ -1285,34 +1286,6 @@ def my_payslips():
     )
 
 
-def _earnings_lines_for_payslip(item: PayrollItem) -> list[dict]:
-    """Positive earnings rows from stored breakdown, ordered for payslip display."""
-    lines = []
-    for row in item.earnings_breakdown or []:
-        try:
-            amt = Decimal(str(row.get('amount') or 0))
-        except (TypeError, ValueError):
-            continue
-        if amt == 0:
-            continue
-        code = str(row.get('code') or '').upper()
-        lines.append({
-            'code': code,
-            'name': (row.get('name') or row.get('code') or 'Earning').strip(),
-            'amount': amt,
-        })
-    sort_rank = {'BASIC': 0, 'HOUSE': 10, 'TRANSPORT': 11, 'MEAL': 12, 'OTHER_ALLOW': 13, 'OTHER_EARN': 90, 'OVERTIME': 99}
-
-    def _sort_key(line):
-        code = line['code']
-        if code.startswith('BEN-'):
-            return (50, line['name'].lower())
-        return (sort_rank.get(code, 40), line['name'].lower())
-
-    lines.sort(key=_sort_key)
-    return lines
-
-
 def _payslip_item_query(run_id: int, employee_id: int):
     return (
         db.session.query(PayrollItem)
@@ -1321,6 +1294,7 @@ def _payslip_item_query(run_id: int, employee_id: int):
             joinedload(PayrollItem.employee).joinedload(EmpModel.branch),
             joinedload(PayrollItem.employee).joinedload(EmpModel.department),
             joinedload(PayrollItem.employee).joinedload(EmpModel.job_title),
+            joinedload(PayrollItem.employee).joinedload(EmpModel.user),
         )
         .filter(
             PayrollItem.payroll_run_id == run_id,
@@ -1345,105 +1319,65 @@ def _fetch_payslip_item(run_id: int, employee_id: int) -> PayrollItem:
     return item
 
 
-def _build_payslip_context(item: PayrollItem) -> dict:
-    from app.services.statutory_service import get_personal_relief
-    from app.utils.currency import currency_for_employee
-
-    dd = item.deductions_breakdown or []
-    run = item.payroll_run
-    period_date = date(run.pay_year, run.pay_month, 1)
-    emp_ps = item.employee
-    scc = (emp_ps.branch.country_code if emp_ps and emp_ps.branch else 'KE').upper()[:2]
-    personal_relief = get_personal_relief(period_date, emp_ps.company_id, scc) if emp_ps else Decimal('0')
-    nssf_tier_1 = next((d.get('amount', 0) for d in dd if d.get('code') == 'NSSF_TIER1'), 0)
-    nssf_tier_2 = next((d.get('amount', 0) for d in dd if d.get('code') == 'NSSF_TIER2'), 0)
-    has_nssf_tiers = any((d.get('code') or '').startswith('NSSF_TIER') for d in dd)
-    show_nssf_tiers = has_nssf_tiers and scc == 'KE'
-    show_shif = Decimal(str(item.shif or 0)) > 0
-    show_housing_levy = Decimal(str(item.housing_levy or 0)) > 0
-    show_personal_relief = Decimal(str(personal_relief or 0)) > 0
-    allowable_deductions = item.gross_pay - item.taxable_pay
-    earnings_lines = _earnings_lines_for_payslip(item)
-    other_deduction_lines = []
-    pension_percent_amount = Decimal('0')
-    pension_fixed_amount = Decimal('0')
-    for d in dd:
-        c = d.get('code') or ''
-        if c == 'PENSION_PERCENT':
-            try:
-                pension_percent_amount += Decimal(str(d.get('amount') or 0))
-            except Exception:
-                pass
-            continue
-        if c == 'PENSION_FIXED':
-            try:
-                pension_fixed_amount += Decimal(str(d.get('amount') or 0))
-            except Exception:
-                pass
-            continue
-        if c.startswith('DED_') or c.startswith('MANUAL_') or c == 'OTHER':
-            try:
-                amt = float(d.get('amount') or 0)
-            except (TypeError, ValueError):
-                amt = 0.0
-            if amt == 0:
-                continue
-            other_deduction_lines.append(d)
-    payslip_currency = currency_for_employee(
-        item.employee,
-        app_default=current_app.config.get('DEFAULT_CURRENCY', 'KES'),
-    )
-    company_name = run.company.name if run and run.company else None
-    return {
-        'item': item,
-        'nssf_tier_1': nssf_tier_1,
-        'nssf_tier_2': nssf_tier_2,
-        'allowable_deductions': allowable_deductions,
-        'personal_relief': personal_relief,
-        'period_date': period_date,
-        'other_deduction_lines': other_deduction_lines,
-        'payslip_currency': payslip_currency,
-        'statutory_country_code': scc,
-        'show_nssf_tiers': show_nssf_tiers,
-        'show_shif': show_shif,
-        'show_housing_levy': show_housing_levy,
-        'show_personal_relief': show_personal_relief,
-        'earnings_lines': earnings_lines,
-        'pension_percent_amount': pension_percent_amount,
-        'pension_fixed_amount': pension_fixed_amount,
-        'company_name': company_name,
-    }
-
-
-def _payslip_pdf_filename(item: PayrollItem) -> str:
-    run = item.payroll_run
-    emp = item.employee
-    slug = (emp.employee_number if emp and emp.employee_number else f'emp-{item.employee_id}').strip()
-    slug = re.sub(r'[^\w\-]+', '-', slug) or f'emp-{item.employee_id}'
-    return f'payslip-{run.pay_year}-{run.pay_month:02d}-{slug}.pdf'
-
-
 @payroll_bp.route('/payslip/<int:run_id>/<int:employee_id>')
 @login_required
 def view_payslip(run_id, employee_id):
     item = _fetch_payslip_item(run_id, employee_id)
-    return render_template('payroll/view_payslip.html', **_build_payslip_context(item))
+    return render_template('payroll/view_payslip.html', **build_payslip_context(item))
 
 
 @payroll_bp.route('/payslip/<int:run_id>/<int:employee_id>/pdf')
 @login_required
 def export_payslip_pdf(run_id, employee_id):
     item = _fetch_payslip_item(run_id, employee_id)
-    from app.services.payslip_pdf_service import build_payslip_pdf
-
-    ctx = _build_payslip_context(item)
+    ctx = build_payslip_context(item)
     pdf_bytes = build_payslip_pdf(ctx)
     return send_file(
         BytesIO(pdf_bytes),
         as_attachment=True,
-        download_name=_payslip_pdf_filename(item),
+        download_name=payslip_pdf_filename(item),
         mimetype='application/pdf',
     )
+
+
+@payroll_bp.route('/payslip/<int:run_id>/<int:employee_id>/email', methods=['POST'])
+@login_required
+@permission_required('process_payroll')
+def email_payslip(run_id, employee_id):
+    item = _payslip_item_query(run_id, employee_id).first()
+    if not item or not item.payroll_run or item.payroll_run.company_id != require_company_id():
+        abort(404)
+    run = item.payroll_run
+    if run.status not in _EMPLOYEE_PAYSLIP_RUN_STATUSES:
+        flash('Payslips can only be emailed after payroll is approved.', 'warning')
+        return redirect(url_for('payroll.view_run', id=run_id))
+    ok, message = send_payslip_email(item)
+    flash(message, 'success' if ok else 'danger')
+    next_url = request.form.get('next') or url_for('payroll.view_payslip', run_id=run_id, employee_id=employee_id)
+    return redirect(next_url)
+
+
+@payroll_bp.route('/run/<int:id>/email-payslips', methods=['POST'])
+@login_required
+@permission_required('process_payroll')
+def email_payslips_for_run(id):
+    run_obj = db.session.get(PayrollRun, id)
+    if not run_obj or run_obj.company_id != require_company_id():
+        abort(404)
+    if run_obj.status not in _EMPLOYEE_PAYSLIP_RUN_STATUSES:
+        flash('Payslips can only be emailed after payroll is approved.', 'warning')
+        return redirect(url_for('payroll.view_run', id=id))
+    if not request.form.get('confirm'):
+        flash('Please confirm before emailing all payslips.', 'warning')
+        return redirect(url_for('payroll.view_run', id=id))
+    result = send_payslips_for_run(run_obj.id, run_obj.company_id)
+    parts = [f'{result["sent"]} payslip(s) emailed']
+    if result['skipped_no_email']:
+        parts.append(f'{result["skipped_no_email"]} skipped (no email on file)')
+    if result['failed']:
+        parts.append(f'{result["failed"]} failed to send')
+    flash('. '.join(parts) + '.', 'success' if result['sent'] else 'warning')
+    return redirect(url_for('payroll.view_run', id=id))
 
 
 def _fetch_consultant_payslip_item(run_id: int, consultant_id: int) -> ConsultantPayrollItem:

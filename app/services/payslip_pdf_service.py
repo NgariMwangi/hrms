@@ -304,8 +304,21 @@ def build_payslip_pdf(ctx: dict) -> bytes:
             continue
         pay_rows.append((od.get('name') or 'Deduction', _money(amt, currency), False))
 
+    total_deductions = Decimal(str(item.gross_pay or 0)) - Decimal(str(item.net_pay or 0))
+    pay_rows.append(('Total deductions', _money(total_deductions, currency), True))
     pay_rows.append(('Net pay', _money(item.net_pay, currency), True))
     story.append(_payslip_lines_table(pay_rows, doc.width, currency))
+
+    paye_rows: list[tuple[str, str, bool]] = [
+        ('PAYE information', '', True),
+        ('Gross pay', _money(item.gross_pay, currency), False),
+        ('Allowable deductions', _money(ctx['allowable_deductions'], currency), False),
+        ('Taxable pay', _money(item.taxable_pay, currency), False),
+    ]
+    if ctx.get('show_personal_relief'):
+        paye_rows.append(('Personal relief', _money(ctx['personal_relief'], currency), False))
+    story.append(Spacer(1, 10))
+    story.append(_payslip_lines_table(paye_rows, doc.width, currency))
 
     doc.build(story)
     buffer.seek(0)

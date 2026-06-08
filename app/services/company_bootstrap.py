@@ -16,14 +16,14 @@ def bootstrap_company_defaults(company_id: int, country_code: str = 'KE') -> Non
     cc = (country_code or 'KE').upper()[:2]
 
     leave_specs = [
-        ('ANNUAL', 'Annual Leave', Decimal('24'), True, Decimal('2'), True, 'working'),
-        ('SICK', 'Sick Leave', Decimal('14'), False, None, True, 'working'),
-        ('MATERNITY', 'Maternity Leave', Decimal('90'), False, None, True, 'calendar'),
-        ('PATERNITY', 'Paternity Leave', Decimal('14'), False, None, True, 'calendar'),
-        ('COMPASSIONATE', 'Compassionate Leave', Decimal('5'), False, None, True, 'working'),
-        ('UNPAID', 'Unpaid Leave', Decimal('0'), False, None, False, 'working'),
+        ('ANNUAL', 'Annual Leave', Decimal('24'), True, Decimal('2'), True, 'working', 10),
+        ('SICK', 'Sick Leave', Decimal('14'), False, None, True, 'working', 0),
+        ('MATERNITY', 'Maternity Leave', Decimal('90'), False, None, True, 'calendar', 0),
+        ('PATERNITY', 'Paternity Leave', Decimal('14'), False, None, True, 'calendar', 0),
+        ('COMPASSIONATE', 'Compassionate Leave', Decimal('5'), False, None, True, 'working', 0),
+        ('UNPAID', 'Unpaid Leave', Decimal('0'), False, None, False, 'working', 0),
     ]
-    for code, name, days_py, accrues, dpm, is_paid, basis in leave_specs:
+    for code, name, days_py, accrues, dpm, is_paid, basis, carry_max in leave_specs:
         if (
             db.session.query(LeaveType)
             .filter(LeaveType.company_id == company_id, LeaveType.code == code)
@@ -43,7 +43,7 @@ def bootstrap_company_defaults(company_id: int, country_code: str = 'KE') -> Non
                 days_count_basis=basis,
                 is_paid=is_paid,
                 min_days_request=Decimal('0.5'),
-                carry_forward_max=10,
+                carry_forward_max=carry_max,
                 is_active=True,
             )
         )

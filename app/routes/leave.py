@@ -13,6 +13,7 @@ from app.extensions import db
 from app.models.employee import Employee
 from app.models.leave import LeaveBalance, LeaveRequest, LeaveType, PublicHoliday
 from app.services.leave_stats_service import (
+    leave_type_display_name,
     leave_types_visible_for_gender,
     normalize_gender,
     statistics_for_employee,
@@ -182,7 +183,13 @@ def _active_leave_type_choices_for_employee(employee_id: int | None) -> list[tup
         return [(lt.id, lt.name) for lt in types_list]
     types_list = q.filter(LeaveType.company_id == emp.company_id).order_by(LeaveType.name).all()
     visible = leave_types_visible_for_gender(types_list, normalize_gender(emp.gender))
-    return [(lt.id, lt.name) for lt in visible]
+    return [(lt.id, leave_type_display_name(lt)) for lt in visible]
+
+
+def _leave_type_allowed_for_employee(lt: LeaveType | None, emp: Employee | None) -> bool:
+    if not lt or not emp or not lt.is_active or lt.company_id != emp.company_id:
+        return False
+    return bool(leave_types_visible_for_gender([lt], normalize_gender(emp.gender)))
 
 
 def _handover_employee_choices(exclude_employee_id: int | None) -> list[tuple[int, str]]:
@@ -294,13 +301,7 @@ def request_leave():
     form = LeaveRequestForm()
     emp_id = current_user.employee_id
     emp_me = db.session.get(Employee, emp_id) if emp_id else None
-    lt_q = db.session.query(LeaveType).filter(LeaveType.is_active == True)
-    if emp_me:
-        lt_q = lt_q.filter(LeaveType.company_id == emp_me.company_id)
-    else:
-        lt_q = lt_q.filter(LeaveType.company_id == require_company_id())
-    leave_types = lt_q.order_by(LeaveType.name).all()
-    form.leave_type_id.choices = [(lt.id, lt.name) for lt in leave_types]
+    form.leave_type_id.choices = _active_leave_type_choices_for_employee(emp_id)
     attachment_ctx = _leave_attachment_template_ctx()
     handover_required = _apply_handover_field(form, emp_id)
     if form.validate_on_submit():
@@ -342,8 +343,8 @@ def request_leave():
                     **attachment_ctx,
                 )
         lt = db.session.get(LeaveType, form.leave_type_id.data)
-        if not lt or not emp_self or lt.company_id != emp_self.company_id:
-            flash('Invalid leave type.', 'danger')
+        if not _leave_type_allowed_for_employee(lt, emp_self):
+            flash('Invalid leave type for your profile.', 'danger')
             return render_template(
                 'leave/my_requests.html',
                 form=form,
@@ -480,8 +481,8 @@ def admin_request_leave():
                     **attachment_ctx_admin,
                 )
         lt = db.session.get(LeaveType, form.leave_type_id.data)
-        if not lt or not lt.is_active or lt.company_id != emp.company_id:
-            flash('Invalid leave type.', 'danger')
+        if not _leave_type_allowed_for_employee(lt, emp):
+            flash('Invalid leave type for this employee’s profile.', 'danger')
             return render_template(
                 'leave/admin_request.html',
                 form=form,
@@ -631,8 +632,8 @@ def edit_request(id):
                 )
 
         lt = db.session.get(LeaveType, form.leave_type_id.data)
-        if not lt or not lt.is_active or lt.company_id != emp.company_id:
-            flash('Invalid leave type.', 'danger')
+        if not _leave_type_allowed_for_employee(lt, emp):
+            flash('Invalid leave type for this employee’s profile.', 'danger')
             return render_template(
                 'leave/my_requests.html',
                 form=form,

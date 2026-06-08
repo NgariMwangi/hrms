@@ -17,9 +17,19 @@ def _d(x) -> Decimal:
     return Decimal(str(x or 0)).quantize(Decimal("0.01"))
 
 
+FIXED_ANNUAL_ENTITLEMENT_CODES = frozenset({'SICK'})
+
+
+def is_fixed_annual_entitlement_leave(lt: LeaveType) -> bool:
+    """Leave types granted in full at year start (e.g. 14 sick days), not monthly accrual."""
+    return (lt.code or '').upper() in FIXED_ANNUAL_ENTITLEMENT_CODES
+
+
 def leave_type_uses_balance_ledger(lt: LeaveType) -> bool:
     """True when balances are tracked (monthly accrual and/or carry-forward rules)."""
     if not lt or not lt.is_active:
+        return False
+    if is_fixed_annual_entitlement_leave(lt):
         return False
     if lt.accrues_monthly:
         return True
@@ -64,6 +74,8 @@ def accrual_months_in_year(emp: Employee, year: int, as_of: date) -> int:
 
 def compute_accrued_for_year(lt: LeaveType, emp: Employee, year: int, as_of: date) -> Decimal:
     """Earned days YTD from monthly accrual, capped by days_per_year when set."""
+    if is_fixed_annual_entitlement_leave(lt) and lt.days_per_year is not None:
+        return _d(lt.days_per_year)
     if not lt.accrues_monthly or lt.days_per_month is None:
         return Decimal("0")
     dpm = _d(lt.days_per_month)

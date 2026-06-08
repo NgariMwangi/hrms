@@ -90,6 +90,9 @@
                         <dt class="col-6 text-muted">Max carry next yr</dt>
                         <dd class="col-6 text-end mb-1 text-muted">{{ row.carry_forward_max }} days</dd>
                         {% endif %}
+                        {% elif row.mode == 'annual_grant' %}
+                        <dt class="col-6 text-muted">Earned YTD</dt>
+                        <dd class="col-6 text-end mb-1">{{ row.accrued | fmt_days }} <span class="text-muted">days</span></dd>
                         {% elif row.entitlement is not none %}
                         <dt class="col-6 text-muted">Entitlement</dt>
                         <dd class="col-6 text-end mb-1">{{ row.entitlement | fmt_days }} <span class="text-muted">days</span></dd>

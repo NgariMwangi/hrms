@@ -14,7 +14,7 @@
         class="form-control"
         accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic,image/*,application/pdf"
     />
-    <div class="form-text">PDF, Word, or image (JPG, PNG, etc.). Max size depends on server settings.</div>
+    <div class="form-text">PDF, Word, or image (JPG, PNG, etc.). Max size: {{ leave_max_attachment_mb }} MB.</div>
     {% if existing_document %}
     <p class="small text-muted mt-2 mb-0">
         <i class="bi bi-paperclip me-1"></i>Current file on record.

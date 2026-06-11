@@ -9,6 +9,15 @@ from flask import current_app
 from werkzeug.utils import secure_filename
 
 LEAVE_DOC_EXTENSIONS = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp', 'heic'}
+_DEFAULT_LEAVE_MAX_BYTES = 100 * 1024 * 1024
+
+
+def leave_max_attachment_bytes() -> int:
+    return int(current_app.config.get('LEAVE_MAX_ATTACHMENT_BYTES', _DEFAULT_LEAVE_MAX_BYTES))
+
+
+def leave_max_attachment_mb() -> int:
+    return leave_max_attachment_bytes() // (1024 * 1024)
 
 
 def _allowed_leave_file(filename: str) -> bool:
@@ -16,6 +25,30 @@ def _allowed_leave_file(filename: str) -> bool:
         return False
     ext = filename.rsplit('.', 1)[1].lower()
     return ext in LEAVE_DOC_EXTENSIONS
+
+
+def _file_storage_size(file_storage) -> int | None:
+    content_length = getattr(file_storage, 'content_length', None)
+    if content_length is not None:
+        return int(content_length)
+    stream = getattr(file_storage, 'stream', None)
+    if stream is None:
+        return None
+    try:
+        pos = stream.tell()
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(pos)
+        return size
+    except (OSError, ValueError):
+        return None
+
+
+def _validate_leave_file_size(file_storage) -> None:
+    max_bytes = leave_max_attachment_bytes()
+    size = _file_storage_size(file_storage)
+    if size is not None and size > max_bytes:
+        raise ValueError(f'File is too large. Maximum size is {leave_max_attachment_mb()} MB.')
 
 
 def save_leave_request_document(file_storage, employee_id: int, request_id: int) -> str:
@@ -26,6 +59,7 @@ def save_leave_request_document(file_storage, employee_id: int, request_id: int)
     if not original or not _allowed_leave_file(original):
         allowed = ', '.join(sorted(LEAVE_DOC_EXTENSIONS))
         raise ValueError(f'File type not allowed. Use: {allowed}')
+    _validate_leave_file_size(file_storage)
     ext = original.rsplit('.', 1)[1].lower()
     rel = os.path.join(
         'leave_requests',

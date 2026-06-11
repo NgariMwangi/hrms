@@ -39,6 +39,7 @@ from app.services.leave_balance_service import (
 from app.services.public_holiday_service import public_holiday_dates_in_range
 from app.services.leave_document_service import (
     delete_leave_request_document,
+    leave_max_attachment_mb,
     resolve_leave_document_full_path,
     save_leave_request_document,
 )
@@ -80,6 +81,7 @@ def _leave_attachment_template_ctx(lr: LeaveRequest | None = None) -> dict:
     return {
         'existing_document': bool(lr and lr.document_path),
         'existing_document_request_id': lr.id if lr else None,
+        'leave_max_attachment_mb': leave_max_attachment_mb(),
     }
 
 

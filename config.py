@@ -63,7 +63,7 @@ class Config:
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(
         os.path.dirname(os.path.abspath(__file__)), 'uploads'
     )
-    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB
+    MAX_CONTENT_LENGTH = 70 * 1024 * 1024  # 70MB
     ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
     # Cloudinary (optional) for employee document storage
     CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME') or ''

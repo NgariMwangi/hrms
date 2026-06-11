@@ -11,6 +11,22 @@ LEAVE_STATUS_REJECTED = 'rejected'
 LEAVE_STATUS_CANCELLED = 'cancelled'
 
 EDITABLE_STATUSES = frozenset({LEAVE_STATUS_PENDING})
+RESUBMITTABLE_STATUSES = frozenset({LEAVE_STATUS_REJECTED})
+
+
+def leave_request_is_resubmittable(leave_request: LeaveRequest) -> bool:
+    return (leave_request.status or '').strip().lower() in RESUBMITTABLE_STATUSES
+
+
+def reset_leave_request_for_resubmission(leave_request: LeaveRequest, employee: Employee) -> None:
+    """Clear prior rejection and re-enter the approval workflow."""
+    leave_request.status = initial_leave_status_for_employee(employee)
+    leave_request.supervisor_reviewed_by_id = None
+    leave_request.supervisor_reviewed_at = None
+    leave_request.supervisor_notes = None
+    leave_request.reviewed_by_id = None
+    leave_request.reviewed_at = None
+    leave_request.review_notes = None
 
 
 def initial_leave_status_for_employee(employee: Employee | None) -> str:

@@ -35,9 +35,19 @@
 {% endmacro %}
 
 {% macro leave_request_actions(r) %}
-{% set can_modify = r.status == 'pending' and (has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id)) %}
-{% if can_modify %}
+{% set st = (r.status or '')|lower %}
+{% set can_act = has_permission('approve_leave') or (current_user.employee_id and current_user.employee_id == r.employee_id) %}
+{% set can_edit = st == 'pending' and can_act %}
+{% set can_resubmit = st == 'rejected' and can_act %}
+<a href="{{ url_for('leave.view_request', id=r.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+{% if can_edit %}
 <a href="{{ url_for('leave.edit_request', id=r.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+<form method="post" action="{{ url_for('leave.delete_request', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave request?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+</form>
+{% elif can_resubmit %}
+<a href="{{ url_for('leave.edit_request', id=r.id) }}" class="btn btn-sm btn-outline-primary">Resubmit</a>
 <form method="post" action="{{ url_for('leave.delete_request', id=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave request?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>

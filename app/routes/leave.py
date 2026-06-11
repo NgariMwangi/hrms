@@ -52,9 +52,12 @@ from app.services.leave_approval_service import (
     LEAVE_STATUS_APPROVED,
     LEAVE_STATUS_PENDING_HR,
     LEAVE_STATUS_REJECTED,
+    RESUBMITTABLE_STATUSES,
     approval_stage_for_user,
     initial_leave_status_for_employee,
+    leave_request_is_resubmittable,
     leave_status_label,
+    reset_leave_request_for_resubmission,
     supervisor_step_summary,
     user_is_line_manager,
 )
@@ -73,8 +76,9 @@ leave_bp = Blueprint('leave', __name__)
 
 
 def _leave_request_is_editable(lr: LeaveRequest) -> bool:
-    """Only before supervisor approval can the employee edit or delete."""
-    return (lr.status or '').strip().lower() in EDITABLE_STATUSES
+    """Pending (before supervisor acts) or rejected (resubmit) requests."""
+    status = (lr.status or '').strip().lower()
+    return status in EDITABLE_STATUSES or status in RESUBMITTABLE_STATUSES
 
 
 def _leave_attachment_template_ctx(lr: LeaveRequest | None = None) -> dict:
@@ -113,8 +117,25 @@ def _leave_requests_visible_query(cid: int):
             joinedload(LeaveRequest.employee).joinedload(Employee.manager),
             joinedload(LeaveRequest.handover_to),
             joinedload(LeaveRequest.supervisor_reviewed_by),
+            joinedload(LeaveRequest.reviewed_by),
         )
     )
+
+
+def _can_view_leave_request(lr: LeaveRequest, cid: int) -> bool:
+    """Same visibility rules as the leave list."""
+    emp = lr.employee
+    if not emp or emp.company_id != cid:
+        return False
+    if current_user.has_permission('approve_leave'):
+        return True
+    if not current_user.employee_id:
+        return False
+    if lr.employee_id == current_user.employee_id:
+        return True
+    if user_is_line_manager(current_user, cid) and emp.manager_id == current_user.employee_id:
+        return True
+    return False
 
 
 def _leave_country_for_employee(emp: Employee | None) -> str:
@@ -572,6 +593,50 @@ def admin_request_leave():
     )
 
 
+@leave_bp.route('/<int:id>')
+@login_required
+def view_request(id):
+    """Read-only detail for any leave request the user is allowed to see."""
+    cid = require_company_id()
+    lr = _leave_requests_visible_query(cid).filter(LeaveRequest.id == id).first()
+    if not lr:
+        abort(404)
+    if not _can_view_leave_request(lr, cid):
+        abort(403)
+
+    remaining = None
+    if lr.status == LEAVE_STATUS_APPROVED and lr.leave_type and lr.start_date and lr.end_date:
+        basis = (lr.leave_type.days_count_basis or 'working').lower()
+        if basis not in ('working', 'calendar'):
+            basis = 'working'
+        emp_row = lr.employee
+        co = emp_row.company_id if emp_row else cid
+        cc = _leave_country_for_employee(emp_row)
+        excl = public_holiday_dates_in_range(lr.start_date, lr.end_date, co, cc)
+        remaining = approved_leave_remaining_days(
+            lr.start_date, lr.end_date, basis, today=date.today(), exclude_dates=excl
+        )
+
+    sup = supervisor_step_summary(lr)
+    stage = approval_stage_for_user(current_user, lr)
+    if stage == 'hr' and sup.get('state') == 'awaiting':
+        sup = {**sup, 'hr_can_bypass': True}
+
+    is_owner = (current_user.employee_id or 0) == lr.employee_id
+    can_manage = current_user.has_permission('approve_leave') or is_owner
+
+    return render_template(
+        'leave/view_request.html',
+        request=lr,
+        supervisor_summary=sup,
+        approval_stage=stage,
+        remaining_days=remaining,
+        can_edit=lr.status == 'pending' and can_manage,
+        can_resubmit=leave_request_is_resubmittable(lr) and can_manage,
+        can_review=bool(stage),
+    )
+
+
 @leave_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_request(id):
@@ -586,9 +651,10 @@ def edit_request(id):
     if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
         abort(403)
     if not _leave_request_is_editable(lr):
-        flash('Only leave awaiting supervisor approval can be edited. After that, contact HR.', 'warning')
+        flash('This leave request can no longer be changed. Contact HR.', 'warning')
         return redirect(url_for('leave.index'))
 
+    is_resubmit = leave_request_is_resubmittable(lr)
     form = LeaveRequestForm(obj=lr)
     form.leave_type_id.choices = _active_leave_type_choices_for_employee(lr.employee_id)
     handover_required = _apply_handover_field(form, lr.employee_id)
@@ -596,9 +662,10 @@ def edit_request(id):
         'handover_required': handover_required,
         'balance_preview_requires_employee_id': False,
         'form_action': url_for('leave.edit_request', id=lr.id),
-        'form_submit_label': 'Save Changes',
-        'form_title': 'Edit Leave Request',
+        'form_submit_label': 'Resubmit' if is_resubmit else 'Save Changes',
+        'form_title': 'Resubmit Leave Request' if is_resubmit else 'Edit Leave Request',
         'edit_employee': emp,
+        'is_resubmit': is_resubmit,
         **_leave_attachment_template_ctx(lr),
     }
 
@@ -674,8 +741,22 @@ def edit_request(id):
                 form=form,
                 **edit_ctx,
             )
+        if is_resubmit:
+            reset_leave_request_for_resubmission(lr, emp)
         db.session.commit()
-        if not lr.document_path:
+        if is_resubmit:
+            try:
+                notify_leave_submitted(lr.id)
+            except Exception:
+                current_app.logger.exception('Leave resubmission email failed for request %s', lr.id)
+            if not lr.document_path:
+                flash(
+                    'Leave request resubmitted. Attaching a supporting document is strongly recommended.',
+                    'warning',
+                )
+            else:
+                flash('Leave request resubmitted for approval.', 'success')
+        elif not lr.document_path:
             flash(
                 'Leave request updated. Attaching a supporting document is strongly recommended.',
                 'warning',
@@ -705,7 +786,7 @@ def delete_request(id):
     if not can_manage_all and (current_user.employee_id or 0) != lr.employee_id:
         abort(403)
     if not _leave_request_is_editable(lr):
-        flash('Only leave awaiting supervisor approval can be deleted.', 'warning')
+        flash('This leave request can no longer be deleted.', 'warning')
         return redirect(url_for('leave.index'))
     delete_leave_request_document(lr.document_path)
     db.session.delete(lr)

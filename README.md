@@ -136,9 +136,11 @@ pytest tests/ -v --cov=app
 ## Deployment
 
 - **WSGI**: Gunicorn (`gunicorn -w 4 -b 0.0.0.0:5000 wsgi:application`)
-- **Reverse proxy**: Nginx
+- **Reverse proxy**: Nginx — see `deploy/nginx/hrms.conf.example`
 - **Process**: systemd or Supervisor
 - Set `FLASK_ENV=production`, `SECRET_KEY`, `DATABASE_URL`, and other env vars from `.env.example`.
+
+**Large leave attachments (100 MB):** Nginx defaults to 1 MB. Set `client_max_body_size 105M;` in the `server` block (or `http` block in `/etc/nginx/nginx.conf`), then `sudo nginx -t && sudo systemctl reload nginx`. A `413 Request Entity Too Large` from nginx means this limit was not raised on the server.
 
 ## License
 

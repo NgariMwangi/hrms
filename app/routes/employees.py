@@ -1315,6 +1315,10 @@ def welfare_bulk():
     )
 
 
+def _benefit_form_bool(field_name: str, *, default: bool = True) -> bool:
+    return request.form.get(field_name, '1' if default else '0') in {'1', 'true', 'on', 'yes'}
+
+
 @employees_bp.route('/<int:id>/benefits', methods=['GET', 'POST'])
 @login_required
 @permission_required('edit_employees')
@@ -1349,6 +1353,8 @@ def employee_benefits(id):
                 and payroll_year and 2000 <= payroll_year <= 2100
                 and payroll_month and 1 <= payroll_month <= 12
             ):
+                is_taxable = _benefit_form_bool('is_taxable', default=True)
+                is_pensionable = _benefit_form_bool('is_pensionable', default=True) if is_taxable else False
                 db.session.add(
                     EmployeeBenefit(
                         employee_id=id,
@@ -1359,6 +1365,8 @@ def employee_benefits(id):
                         payroll_year=payroll_year,
                         payroll_month=payroll_month,
                         notes=notes,
+                        is_taxable=is_taxable,
+                        is_pensionable=is_pensionable,
                         is_active=True,
                     )
                 )
@@ -1396,6 +1404,12 @@ def employee_benefits(id):
             ):
                 flash('Enter title, amount and a valid payroll month/year.', 'danger')
             else:
+                is_taxable = _benefit_form_bool('is_taxable', default=bool(getattr(row, 'is_taxable', True)))
+                is_pensionable = (
+                    _benefit_form_bool('is_pensionable', default=bool(getattr(row, 'is_pensionable', True)))
+                    if is_taxable
+                    else False
+                )
                 row.title = title[:200]
                 row.amount = Dec(str(amount))
                 row.frequency = frequency
@@ -1403,6 +1417,8 @@ def employee_benefits(id):
                 row.payroll_month = payroll_month
                 row.effective_date = date(payroll_year, payroll_month, 1)
                 row.notes = notes
+                row.is_taxable = is_taxable
+                row.is_pensionable = is_pensionable
                 db.session.commit()
                 flash('Benefit updated.', 'success')
         elif action == 'delete':

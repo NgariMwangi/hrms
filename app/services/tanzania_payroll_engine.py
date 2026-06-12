@@ -59,7 +59,7 @@ def calculate_employee_payroll_tanzania(
     pm = pay_month or pay_date.month
     py = pay_year or pay_date.year
 
-    gross_pay, pensionable, earnings_breakdown = build_gross_earnings(
+    earnings = build_gross_earnings(
         basic_salary=basic_salary,
         house_allowance=house_allowance,
         transport_allowance=transport_allowance,
@@ -71,27 +71,32 @@ def calculate_employee_payroll_tanzania(
         allowance_breakdown=allowance_breakdown,
         overtime_days=overtime_days,
     )
+    gross_pay = earnings.gross_pay
+    taxable_gross = earnings.taxable_gross
+    non_taxable_earnings = earnings.non_taxable_earnings
+    pensionable = earnings.pensionable_pay
+    earnings_breakdown = earnings.earnings_breakdown
 
     if statutory_company_id is None:
         raise ValueError('statutory_company_id is required for payroll calculation')
 
     cc = (statutory_country_code or ENGINE_COUNTRY_CODE).upper()[:2]
-    nssf_emp, nssf_empr = calculate_tanzania_nssf(gross_pay, pay_date, statutory_company_id, cc)
-    taxable_pay = (gross_pay - nssf_emp).quantize(Decimal('0.01'))
+    nssf_emp, nssf_empr = calculate_tanzania_nssf(taxable_gross, pay_date, statutory_company_id, cc)
+    taxable_pay = (taxable_gross - nssf_emp).quantize(Decimal('0.01'))
     if taxable_pay < 0:
         taxable_pay = Decimal('0')
 
     paye = calculate_tanzania_paye(taxable_pay, pay_date, statutory_company_id, cc)
     surtax = calculate_tanzania_surtax(taxable_pay, pay_date, statutory_company_id, cc)
-    sdl_empr = calculate_tanzania_sdl(gross_pay, pay_date, statutory_company_id, cc)
-    wcf_empr = calculate_tanzania_wcf(gross_pay, pay_date, statutory_company_id, cc)
+    sdl_empr = calculate_tanzania_sdl(taxable_gross, pay_date, statutory_company_id, cc)
+    wcf_empr = calculate_tanzania_wcf(taxable_gross, pay_date, statutory_company_id, cc)
 
     factor = decimalize(pro_rata_factor) if pro_rata_factor is not None else Decimal('1')
     pr_days = pro_rata_calendar_days
     denom = Decimal('30')
     pension_pct = decimalize(pension_employee_percent)
     pension_fixed = decimalize(pension_employee_fixed_amount)
-    pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
+    pension_deduction = (taxable_gross * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
     if pension_fixed:
         if pr_days is not None:
             pension_fixed_deduction = ((pension_fixed / denom) * Decimal(pr_days)).quantize(Decimal('0.01'))
@@ -116,7 +121,7 @@ def calculate_employee_payroll_tanzania(
     total_deductions = (
         paye + surtax + nssf_emp + pension_deduction + pension_fixed_deduction + other_ded
     ).quantize(Decimal('0.01'))
-    net_pay = (gross_pay - total_deductions).quantize(Decimal('0.01'))
+    net_pay = (taxable_gross - total_deductions + non_taxable_earnings).quantize(Decimal('0.01'))
 
     deductions_breakdown = [
         {'code': 'NSSF', 'name': 'NSSF (Employee)', 'amount': float(nssf_emp)},
@@ -147,6 +152,8 @@ def calculate_employee_payroll_tanzania(
 
     return {
         'gross_pay': gross_pay,
+        'taxable_gross': taxable_gross,
+        'non_taxable_earnings': non_taxable_earnings,
         'pensionable_pay': pensionable,
         'nssf_employee': nssf_emp,
         'nssf_employer': nssf_empr,

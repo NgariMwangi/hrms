@@ -37,16 +37,20 @@ def _basic_from_item(item: PayrollItem) -> Decimal:
 
 def _benefits_from_item(item: PayrollItem) -> Decimal:
     """
-    Non-basic cash components of gross (allowances + other earnings in payslip breakdown).
-    Not the same as taxable benefits in kind; best available from stored earnings_breakdown.
+    Non-basic taxable cash components of gross (allowances + other earnings in payslip breakdown).
+    Non-taxable reimbursements are excluded from P9 benefits.
     """
     gross = _quantize(item.gross_pay)
     basic = Decimal('0')
+    non_taxable = Decimal('0')
     for row in item.earnings_breakdown or []:
-        if str(row.get('code', '')).upper() == 'BASIC':
-            basic = Decimal(str(row.get('amount', 0)))
-            break
-    diff = gross - basic
+        code = str(row.get('code', '')).upper()
+        amt = Decimal(str(row.get('amount', 0)))
+        if code == 'BASIC':
+            basic = amt
+        if row.get('is_taxable') is False:
+            non_taxable += amt
+    diff = gross - basic - non_taxable
     if diff < 0:
         diff = Decimal('0')
     return diff.quantize(Decimal('0.01'))

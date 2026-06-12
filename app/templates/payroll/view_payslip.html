@@ -183,9 +183,19 @@
                     <table class="table table-sm payslip-amount-table mb-0">
                         <tbody>
                             <tr>
-                                <th>Gross pay</th>
+                                <th>Gross pay (total cash)</th>
                                 <td class="text-end text-nowrap">{{ item.gross_pay|fmt_money(payslip_currency) }}</td>
                             </tr>
+                            {% if non_taxable_earnings > 0 %}
+                            <tr>
+                                <th>Non-taxable earnings</th>
+                                <td class="text-end text-nowrap">{{ non_taxable_earnings|fmt_money(payslip_currency) }}</td>
+                            </tr>
+                            <tr>
+                                <th>Taxable gross</th>
+                                <td class="text-end text-nowrap">{{ taxable_gross_for_paye|fmt_money(payslip_currency) }}</td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th>Allowable deductions</th>
                                 <td class="text-end text-nowrap">{{ allowable_deductions|fmt_money(payslip_currency) }}</td>

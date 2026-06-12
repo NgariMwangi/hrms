@@ -112,10 +112,14 @@ def earnings_lines_for_payslip(item) -> list[dict]:
         if amt == 0:
             continue
         code = str(row.get('code') or '').upper()
+        name = (row.get('name') or row.get('code') or 'Earning').strip()
+        if row.get('is_taxable') is False:
+            name = f'{name} (non-taxable)'
         lines.append({
             'code': code,
-            'name': (row.get('name') or row.get('code') or 'Earning').strip(),
+            'name': name,
             'amount': amt,
+            'is_taxable': row.get('is_taxable', True),
         })
     sort_rank = {'BASIC': 0, 'HOUSE': 10, 'TRANSPORT': 11, 'MEAL': 12, 'OTHER_ALLOW': 13, 'OTHER_EARN': 90, 'OVERTIME': 99}
 
@@ -146,7 +150,15 @@ def build_payslip_context(item) -> dict:
     show_shif = Decimal(str(item.shif or 0)) > 0
     show_housing_levy = Decimal(str(item.housing_levy or 0)) > 0
     show_personal_relief = Decimal(str(personal_relief or 0)) > 0
-    allowable_deductions = item.gross_pay - item.taxable_pay
+    non_taxable_earnings = Decimal('0')
+    for row in item.earnings_breakdown or []:
+        if row.get('is_taxable') is False:
+            try:
+                non_taxable_earnings += Decimal(str(row.get('amount') or 0))
+            except (TypeError, ValueError):
+                pass
+    taxable_gross_for_paye = item.gross_pay - non_taxable_earnings
+    allowable_deductions = taxable_gross_for_paye - item.taxable_pay
     earnings_lines = earnings_lines_for_payslip(item)
     other_deduction_lines = []
     pension_percent_amount = Decimal('0')
@@ -183,6 +195,8 @@ def build_payslip_context(item) -> dict:
         'nssf_tier_1': nssf_tier_1,
         'nssf_tier_2': nssf_tier_2,
         'allowable_deductions': allowable_deductions,
+        'taxable_gross_for_paye': taxable_gross_for_paye,
+        'non_taxable_earnings': non_taxable_earnings,
         'personal_relief': personal_relief,
         'period_date': period_date,
         'other_deduction_lines': other_deduction_lines,

@@ -54,7 +54,7 @@ def calculate_employee_payroll_uganda(
     pm = pay_month or pay_date.month
     py = pay_year or pay_date.year
 
-    gross_pay, pensionable, earnings_breakdown = build_gross_earnings(
+    earnings = build_gross_earnings(
         basic_salary=basic_salary,
         house_allowance=house_allowance,
         transport_allowance=transport_allowance,
@@ -66,19 +66,24 @@ def calculate_employee_payroll_uganda(
         allowance_breakdown=allowance_breakdown,
         overtime_days=overtime_days,
     )
+    gross_pay = earnings.gross_pay
+    taxable_gross = earnings.taxable_gross
+    non_taxable_earnings = earnings.non_taxable_earnings
+    pensionable = earnings.pensionable_pay
+    earnings_breakdown = earnings.earnings_breakdown
 
     if statutory_company_id is None:
         raise ValueError('statutory_company_id is required for payroll calculation')
 
-    lst_reference_income = decimalize(july_gross_for_lst) if july_gross_for_lst is not None else gross_pay
+    lst_reference_income = decimalize(july_gross_for_lst) if july_gross_for_lst is not None else taxable_gross
     lst = monthly_lst_installment(lst_reference_income, pm)
-    chargeable_income = (gross_pay - lst).quantize(Decimal('0.01'))
+    chargeable_income = (taxable_gross - lst).quantize(Decimal('0.01'))
     if chargeable_income < 0:
         chargeable_income = Decimal('0')
 
     paye = calculate_uganda_paye(chargeable_income, pay_date, statutory_company_id, ENGINE_COUNTRY_CODE)
     nssf_emp, nssf_empr = calculate_uganda_nssf(
-        gross_pay, pay_date, statutory_company_id, ENGINE_COUNTRY_CODE
+        taxable_gross, pay_date, statutory_company_id, ENGINE_COUNTRY_CODE
     )
 
     factor = decimalize(pro_rata_factor) if pro_rata_factor is not None else Decimal('1')
@@ -86,7 +91,7 @@ def calculate_employee_payroll_uganda(
     denom = Decimal('30')
     pension_pct = decimalize(pension_employee_percent)
     pension_fixed = decimalize(pension_employee_fixed_amount)
-    pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
+    pension_deduction = (taxable_gross * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
     if pension_fixed:
         if pr_days is not None:
             pension_fixed_deduction = ((pension_fixed / denom) * Decimal(pr_days)).quantize(Decimal('0.01'))
@@ -111,7 +116,7 @@ def calculate_employee_payroll_uganda(
     total_deductions = (
         paye + nssf_emp + lst + pension_deduction + pension_fixed_deduction + other_ded
     ).quantize(Decimal('0.01'))
-    net_pay = (gross_pay - total_deductions).quantize(Decimal('0.01'))
+    net_pay = (taxable_gross - total_deductions + non_taxable_earnings).quantize(Decimal('0.01'))
 
     deductions_breakdown = [
         {'code': 'NSSF', 'name': 'NSSF (Employee 5%)', 'amount': float(nssf_emp)},
@@ -136,6 +141,8 @@ def calculate_employee_payroll_uganda(
 
     return {
         'gross_pay': gross_pay,
+        'taxable_gross': taxable_gross,
+        'non_taxable_earnings': non_taxable_earnings,
         'pensionable_pay': pensionable,
         'nssf_employee': nssf_emp,
         'nssf_employer': nssf_empr,

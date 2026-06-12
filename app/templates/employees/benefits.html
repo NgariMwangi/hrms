@@ -6,6 +6,8 @@
     <strong>{{ employee.employee_number or 'No Number' }}</strong> — {{ employee.full_name }}.
     Record each benefit once and pick the payroll month it should appear in.
     Use a negative amount for payroll deductions or adjustments.
+    <strong>Non-taxable</strong> benefits are paid in net only (no PAYE/NSSF/levies on that amount).
+    Existing benefits remain taxable and pensionable unless you edit them.
 </p>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a href="{{ url_for('employees.view', id=employee.id) }}" class="btn btn-outline-secondary">Back to employee</a>
@@ -48,6 +50,20 @@
                 <label class="form-label">Notes (optional)</label>
                 <input type="text" name="notes" class="form-control" maxlength="500" placeholder="Internal note"/>
             </div>
+            <div class="col-md-3">
+                <div class="form-check mt-2">
+                    <input type="hidden" name="is_taxable" value="0"/>
+                    <input type="checkbox" name="is_taxable" value="1" class="form-check-input" id="benefit_is_taxable" checked/>
+                    <label class="form-check-label" for="benefit_is_taxable">Taxable (included in PAYE base)</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="form-check mt-2">
+                    <input type="hidden" name="is_pensionable" value="0"/>
+                    <input type="checkbox" name="is_pensionable" value="1" class="form-check-input" id="benefit_is_pensionable" checked/>
+                    <label class="form-check-label" for="benefit_is_pensionable">Pensionable (included in NSSF base)</label>
+                </div>
+            </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-primary">Add</button>
             </div>
@@ -66,6 +82,8 @@
                         <th>Amount ({{ currency_code }})</th>
                         <th>Frequency</th>
                         <th>Payroll period</th>
+                        <th>Taxable</th>
+                        <th>Pensionable</th>
                         <th>Notes</th>
                         <th></th>
                     </tr>
@@ -83,6 +101,8 @@
                             —
                             {% endif %}
                         </td>
+                        <td>{{ 'Yes' if a.is_taxable else 'No' }}</td>
+                        <td>{{ 'Yes' if a.is_pensionable else 'No' }}</td>
                         <td>{{ a.notes or '—' }}</td>
                         <td>
                             <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#benefitEdit{{ a.id }}" aria-expanded="false" aria-controls="benefitEdit{{ a.id }}">Edit</button>
@@ -95,7 +115,7 @@
                         </td>
                     </tr>
                     <tr class="collapse" id="benefitEdit{{ a.id }}">
-                        <td colspan="6" class="bg-light">
+                        <td colspan="8" class="bg-light">
                             <form method="post" class="row g-2 p-2">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="action" value="edit"/>
@@ -131,6 +151,20 @@
                                     <label class="form-label mb-1">Notes</label>
                                     <input type="text" name="notes" class="form-control form-control-sm" maxlength="500" value="{{ a.notes or '' }}">
                                 </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input type="hidden" name="is_taxable" value="0"/>
+                                        <input type="checkbox" name="is_taxable" value="1" class="form-check-input" id="benefit_taxable_{{ a.id }}" {% if a.is_taxable %}checked{% endif %}/>
+                                        <label class="form-check-label" for="benefit_taxable_{{ a.id }}">Taxable</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input type="hidden" name="is_pensionable" value="0"/>
+                                        <input type="checkbox" name="is_pensionable" value="1" class="form-check-input" id="benefit_pensionable_{{ a.id }}" {% if a.is_pensionable %}checked{% endif %}/>
+                                        <label class="form-check-label" for="benefit_pensionable_{{ a.id }}">Pensionable</label>
+                                    </div>
+                                </div>
                                 <div class="col-12">
                                     <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
                                 </div>
@@ -138,7 +172,7 @@
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" class="text-muted px-3 py-2">No benefits recorded yet.</td></tr>
+                    <tr><td colspan="8" class="text-muted px-3 py-2">No benefits recorded yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

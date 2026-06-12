@@ -169,7 +169,7 @@ def _calculate_employee_payroll_kenya(
     pr_days = pro_rata_calendar_days
     denom = Decimal(PRORATA_STANDARD_MONTH_DAYS)
 
-    gross_pay, pensionable, earnings_breakdown = build_gross_earnings(
+    earnings = build_gross_earnings(
         basic_salary=basic_salary,
         house_allowance=house_allowance,
         transport_allowance=transport_allowance,
@@ -181,6 +181,11 @@ def _calculate_employee_payroll_kenya(
         allowance_breakdown=allowance_breakdown,
         overtime_days=overtime_days,
     )
+    gross_pay = earnings.gross_pay
+    taxable_gross = earnings.taxable_gross
+    non_taxable_earnings = earnings.non_taxable_earnings
+    pensionable = earnings.pensionable_pay
+    earnings_breakdown = earnings.earnings_breakdown
 
     if scid is None:
         raise ValueError('statutory_company_id is required for payroll calculation')
@@ -190,11 +195,11 @@ def _calculate_employee_payroll_kenya(
     nssf_emp = nssf_emp.quantize(Decimal('0.01'))
     nssf_empr = nssf_empr.quantize(Decimal('0.01'))
 
-    shif = calculate_shif(gross_pay, pay_date, scid, scc)
-    housing_levy = calculate_housing_levy(gross_pay, pay_date, scid, scc)
+    shif = calculate_shif(taxable_gross, pay_date, scid, scc)
+    housing_levy = calculate_housing_levy(taxable_gross, pay_date, scid, scc)
     pension_pct = decimalize(pension_employee_percent)
     pension_fixed = decimalize(pension_employee_fixed_amount)
-    pension_deduction = (gross_pay * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
+    pension_deduction = (taxable_gross * pension_pct / 100).quantize(Decimal('0.01')) if pension_pct else Decimal('0')
     if pension_fixed:
         if pr_days is not None:
             pension_fixed_deduction = ((pension_fixed / denom) * Decimal(pr_days)).quantize(Decimal('0.01'))
@@ -208,7 +213,7 @@ def _calculate_employee_payroll_kenya(
     pension_tax_deductible = pension_total_for_month
     if scc == 'KE':
         pension_tax_deductible = min(pension_total_for_month, KENYA_PENSION_TAX_DEDUCTIBLE_CAP)
-    taxable_pay = (gross_pay - nssf_emp - shif - housing_levy - pension_tax_deductible).quantize(
+    taxable_pay = (taxable_gross - nssf_emp - shif - housing_levy - pension_tax_deductible).quantize(
         Decimal('0.01')
     )
     if taxable_pay < 0:
@@ -227,7 +232,7 @@ def _calculate_employee_payroll_kenya(
     total_deductions = (
         nssf_emp + shif + housing_levy + paye + pension_deduction + pension_fixed_deduction + other_ded
     )
-    net_pay = (gross_pay - total_deductions).quantize(Decimal('0.01'))
+    net_pay = (taxable_gross - total_deductions + non_taxable_earnings).quantize(Decimal('0.01'))
     deductions_breakdown = []
     for row in nssf_breakdown:
         deductions_breakdown.append(
@@ -256,6 +261,8 @@ def _calculate_employee_payroll_kenya(
 
     return {
         'gross_pay': gross_pay,
+        'taxable_gross': taxable_gross,
+        'non_taxable_earnings': non_taxable_earnings,
         'pensionable_pay': pensionable,
         'nssf_employee': nssf_emp,
         'nssf_employer': nssf_empr,

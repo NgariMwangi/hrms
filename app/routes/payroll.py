@@ -411,8 +411,8 @@ def run_calculate(id):
             allowance_breakdown.extend(
                 {
                     'amount': b.amount,
-                    'is_taxable': True,
-                    'is_pensionable': True,
+                    'is_taxable': bool(getattr(b, 'is_taxable', True)),
+                    'is_pensionable': bool(getattr(b, 'is_pensionable', True)),
                     'prorate': False,
                     'code': f'BEN-{b.id}',
                     'name': b.title or 'Benefit',
@@ -641,8 +641,8 @@ def run_calculate(id):
                 allowance_breakdown.extend(
                     {
                         'amount': b.amount,
-                        'is_taxable': True,
-                        'is_pensionable': True,
+                        'is_taxable': bool(getattr(b, 'is_taxable', True)),
+                        'is_pensionable': bool(getattr(b, 'is_pensionable', True)),
                         'prorate': False,
                         'code': f'BEN-{b.id}',
                         'name': b.title or 'Benefit',

@@ -23,6 +23,8 @@ class EmployeeBenefit(BaseModel):
     payroll_year = db.Column(db.Integer, nullable=True)
     payroll_month = db.Column(db.Integer, nullable=True)
     notes = db.Column(db.String(500), nullable=True)
+    is_taxable = db.Column(db.Boolean, default=True, nullable=False)
+    is_pensionable = db.Column(db.Boolean, default=True, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
     employee = db.relationship('Employee', backref='benefit_assignments')

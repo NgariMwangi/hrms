@@ -119,17 +119,22 @@ def build_gross_earnings(
         return v * factor
 
     other_earn = decimalize(other_earnings)
+    basic_full = decimalize(basic_salary)
     basic = prorate_monthly(basic_salary)
     taxable_total = basic
     non_taxable_total = Decimal('0')
     pensionable_allowances = Decimal('0')
+    # Overtime daily rate uses full-month basic + allowances only (not prorated).
+    overtime_rate_base = basic_full
 
     if allowance_breakdown:
         earnings_breakdown = [_earnings_line('BASIC', 'Basic Salary', basic, is_taxable=True)]
         for a in allowance_breakdown:
             base_amt = decimalize(a.get('amount', 0))
-            should_prorate_line = a.get('prorate', True)
+            should_prorate_line = bool(a.get('prorate', False))
             amt = prorate_monthly(base_amt) if should_prorate_line else base_amt
+            if should_prorate_line:
+                overtime_rate_base += base_amt
             is_taxable = bool(a.get('is_taxable', True))
             if is_taxable:
                 taxable_total += amt
@@ -145,34 +150,41 @@ def build_gross_earnings(
                     is_taxable=is_taxable,
                 )
             )
-        other_earn_adj = prorate_monthly(other_earn) if pr_days is not None else other_earn
-        taxable_total += other_earn_adj
-        earnings_breakdown.append(
-            _earnings_line('OTHER_EARN', 'Other Earnings', other_earn_adj, is_taxable=True)
-        )
+        if other_earn > 0:
+            taxable_total += other_earn
+            earnings_breakdown.append(
+                _earnings_line('OTHER_EARN', 'Other Earnings', other_earn, is_taxable=True)
+            )
         pensionable = get_pensionable_pay(basic, pensionable_allowances, Decimal('0'))
     else:
-        house = prorate_monthly(decimalize(house_allowance))
-        transport = prorate_monthly(decimalize(transport_allowance))
-        meal = prorate_monthly(decimalize(meal_allowance))
-        other_allow = prorate_monthly(decimalize(other_allowances))
-        other_earn_adj = prorate_monthly(other_earn)
-        taxable_total = (basic + house + transport + meal + other_allow + other_earn_adj).quantize(
+        house_full = decimalize(house_allowance)
+        transport_full = decimalize(transport_allowance)
+        meal_full = decimalize(meal_allowance)
+        other_allow_full = decimalize(other_allowances)
+        house = prorate_monthly(house_full)
+        transport = prorate_monthly(transport_full)
+        meal = prorate_monthly(meal_full)
+        other_allow = prorate_monthly(other_allow_full)
+        taxable_total = (basic + house + transport + meal + other_allow + other_earn).quantize(
             Decimal('0.01')
         )
+        overtime_rate_base = basic_full + house_full + transport_full + meal_full + other_allow_full
         pensionable = get_pensionable_pay(basic, house, Decimal('0'))
         earnings_breakdown = [
             _earnings_line('BASIC', 'Basic Salary', basic, is_taxable=True),
             _earnings_line('HOUSE', 'House Allowance', house, is_taxable=True),
             _earnings_line('TRANSPORT', 'Transport Allowance', transport, is_taxable=True),
             _earnings_line('MEAL', 'Meal Allowance', meal, is_taxable=True),
-            _earnings_line('OTHER_ALLOW', 'Other Allowances', other_allow + other_earn_adj, is_taxable=True),
+            _earnings_line('OTHER_ALLOW', 'Other Allowances', other_allow, is_taxable=True),
         ]
+        if other_earn > 0:
+            earnings_breakdown.append(
+                _earnings_line('OTHER_EARN', 'Other Earnings', other_earn, is_taxable=True)
+            )
 
     ot_days = decimalize(overtime_days) if overtime_days is not None else Decimal('0')
     if ot_days > 0:
-        gross_before_ot = taxable_total + non_taxable_total
-        per_day = (gross_before_ot * Decimal('12')) / Decimal('365')
+        per_day = (overtime_rate_base * Decimal('12')) / Decimal('365')
         ot_amt = (per_day * ot_days).quantize(Decimal('0.01'))
         earnings_breakdown.append(
             _earnings_line('OVERTIME', 'Overtime compensation', ot_amt, is_taxable=True)

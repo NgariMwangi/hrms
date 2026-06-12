@@ -390,6 +390,7 @@ def run_calculate(id):
                         'amount': ea.amount,
                         'is_taxable': ea.allowance.is_taxable,
                         'is_pensionable': ea.allowance.is_pensionable,
+                        'prorate': True,
                         'code': ea.allowance.code,
                         'name': ea.allowance.name,
                     }
@@ -397,10 +398,10 @@ def run_calculate(id):
                 ])
             elif salary:
                 allowance_breakdown.extend([
-                    {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'code': 'HOUSE', 'name': 'House Allowance'},
-                    {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
-                    {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'MEAL', 'name': 'Meal Allowance'},
-                    {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
+                    {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'prorate': True, 'code': 'HOUSE', 'name': 'House Allowance'},
+                    {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
+                    {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'MEAL', 'name': 'Meal Allowance'},
+                    {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
                 ])
             allowance_breakdown.extend(
                 {
@@ -615,6 +616,7 @@ def run_calculate(id):
                         'amount': ea.amount,
                         'is_taxable': ea.allowance.is_taxable,
                         'is_pensionable': ea.allowance.is_pensionable,
+                        'prorate': True,
                         'code': ea.allowance.code,
                         'name': ea.allowance.name,
                     }
@@ -622,10 +624,10 @@ def run_calculate(id):
                     ])
                 elif salary:
                     allowance_breakdown.extend([
-                        {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'code': 'HOUSE', 'name': 'House Allowance'},
-                        {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
-                        {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'code': 'MEAL', 'name': 'Meal Allowance'},
-                        {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
+                        {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'prorate': True, 'code': 'HOUSE', 'name': 'House Allowance'},
+                        {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
+                        {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'MEAL', 'name': 'Meal Allowance'},
+                        {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
                     ])
                 allowance_breakdown.extend(
                     {

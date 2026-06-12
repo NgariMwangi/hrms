@@ -24,7 +24,8 @@
 <div class="card mb-3">
     <div class="card-body">
         <p class="mb-1"><strong>Country:</strong> {{ run_country_code }} ({{ run_currency }})</p>
-        <p class="mb-1"><strong>Active employees:</strong> {{ active_employee_count }}</p>
+        <p class="mb-1"><strong>Employees in this pay period:</strong> {{ active_employee_count }}</p>
+        <p class="mb-0 small text-muted">Includes staff terminated during this month (prorated through last working day).</p>
         <p class="mb-0"><strong>Eligible for payroll (salary set for this period):</strong> {{ eligible_count }}</p>
         <p class="mb-0"><strong>Excluded from this run:</strong> {{ excluded_count }}</p>
         <p class="mb-0"><strong>Will be processed on calculate:</strong> {{ included_count }}</p>
@@ -72,7 +73,11 @@
                         <td>{{ e.employee_number }} - {{ e.full_name }}</td>
                         <td>
                             {% if has_salary %}
+                                {% if e.status == 'terminated' and e.termination_date %}
+                                <span class="badge text-bg-warning text-dark">Terminated {{ e.termination_date.strftime('%d %b %Y') }}</span>
+                                {% else %}
                                 <span class="badge text-bg-light">Eligible</span>
+                                {% endif %}
                             {% else %}
                                 <span class="badge text-bg-secondary">Missing salary</span>
                             {% endif %}

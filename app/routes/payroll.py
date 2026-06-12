@@ -216,15 +216,19 @@ def run_calculate(id):
     period_end = date(run_obj.pay_year, run_obj.pay_month, month_last_day)
     run_cc = _cc(run_obj.country_code)
     run_currency = currency_for_country(run_cc)
-    # Get active employees, then determine who is eligible (has salary for this pay date)
+    # Employees who worked any day in this month (incl. terminated mid-month), with salary/benefits.
     employees = (
         db.session.query(EmpModel)
         .options(joinedload(EmpModel.branch))
         .join(Branch, EmpModel.branch_id == Branch.id)
         .filter(
             EmpModel.company_id == run_obj.company_id,
-            EmpModel.status == 'active',
             Branch.country_code == run_cc,
+            EmpModel.hire_date <= period_end,
+            db.or_(
+                EmpModel.termination_date.is_(None),
+                EmpModel.termination_date >= period_start,
+            ),
         )
         .all()
     )
@@ -851,7 +855,12 @@ def run_manual_deductions(id):
     if not run_obj or run_obj.status != 'draft' or run_obj.company_id != require_company_id():
         from flask import abort
         abort(404)
+    from calendar import monthrange
+
     pay_date = date(run_obj.pay_year, run_obj.pay_month, 1)
+    _, month_last_day = monthrange(run_obj.pay_year, run_obj.pay_month)
+    period_start = date(run_obj.pay_year, run_obj.pay_month, 1)
+    period_end = date(run_obj.pay_year, run_obj.pay_month, month_last_day)
     run_cc = _cc(run_obj.country_code)
     run_currency = currency_for_country(run_cc)
     if request.method == 'POST':
@@ -894,15 +903,22 @@ def run_manual_deductions(id):
     for emp in (
         db.session.query(EmpModel)
         .join(Branch, EmpModel.branch_id == Branch.id)
-        .filter(EmpModel.company_id == run_obj.company_id, EmpModel.status == 'active')
-        .filter(Branch.country_code == run_cc)
+        .filter(
+            EmpModel.company_id == run_obj.company_id,
+            Branch.country_code == run_cc,
+            EmpModel.hire_date <= period_end,
+            db.or_(
+                EmpModel.termination_date.is_(None),
+                EmpModel.termination_date >= period_start,
+            ),
+        )
         .order_by(EmpModel.first_name)
         .all()
     ):
         sal = db.session.query(EmployeeSalary).filter(
             EmployeeSalary.employee_id == emp.id,
-            EmployeeSalary.effective_from <= pay_date,
-            (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= pay_date),
+            EmployeeSalary.effective_from <= period_end,
+            (EmployeeSalary.effective_to.is_(None)) | (EmployeeSalary.effective_to >= period_start),
         ).order_by(EmployeeSalary.effective_from.desc()).first()
         if sal:
             employees_with_salary.append(emp)

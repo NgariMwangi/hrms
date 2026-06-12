@@ -65,6 +65,20 @@ def pro_rata_calendar_days_or_none(
     return days_worked
 
 
+def employee_worked_in_pay_period(
+    hire_date: date | None,
+    termination_date: date | None,
+    period_start: date,
+    period_end: date,
+) -> bool:
+    """True when employment overlaps the payroll month (incl. mid-month termination)."""
+    if hire_date and hire_date > period_end:
+        return False
+    if termination_date and termination_date < period_start:
+        return False
+    return True
+
+
 def pro_rata_factor(
     hire_date: date | None,
     termination_date: date | None,

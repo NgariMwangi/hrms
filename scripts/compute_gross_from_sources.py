@@ -100,14 +100,10 @@ def main() -> None:
         if salary.effective_to and (not end_or_termination or salary.effective_to < end_or_termination):
             end_or_termination = salary.effective_to
 
-        if getattr(emp, "prorate_payroll", True):
-            factor = pro_rata_factor(hire_or_start, end_or_termination, pay_month, pay_year)
-            cal_days = pro_rata_calendar_days_or_none(
-                hire_or_start, end_or_termination, pay_month, pay_year
-            )
-        else:
-            factor = Decimal("1")
-            cal_days = None
+        factor = pro_rata_factor(hire_or_start, end_or_termination, pay_month, pay_year)
+        cal_days = pro_rata_calendar_days_or_none(
+            hire_or_start, end_or_termination, pay_month, pay_year
+        )
 
         emp_allowances = (
             db.session.query(EmployeeAllowance)

@@ -49,13 +49,6 @@
         <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract Start Date *</label><input type="date" name="contract_start_date" class="form-control" value="{{ form.contract_start_date.data or '' }}"></div>
         <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract End Date</label><input type="date" name="contract_end_date" class="form-control" value="{{ form.contract_end_date.data or '' }}" placeholder="Optional — open-ended contracts"></div>
         <div class="col-md-4">{{ form.status.label(class='form-label') }}{{ form.status(class='form-select') }}</div>
-        <div class="col-md-6">
-            <div class="form-check mt-2">
-                {{ form.prorate_payroll(class='form-check-input', id='prorate_payroll') }}
-                <label class="form-check-label" for="prorate_payroll">Prorate payroll for partial months</label>
-            </div>
-            <div class="form-text">If unchecked, this employee gets full-month salary even when joining/leaving mid-month.</div>
-        </div>
         <div class="col-12"><hr><h5>Bank Details</h5></div>
         <div class="col-md-4"><label class="form-label">Bank Name</label><input type="text" name="bank_name" class="form-control" value="{{ form.bank_name.data or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Bank branch</label><input type="text" name="bank_branch" class="form-control" value="{{ form.bank_branch.data or '' }}" placeholder="e.g. Westlands"></div>

@@ -541,7 +541,7 @@ def create():
                 contract_end_date=(
                     form.contract_end_date.data if form.employment_type.data == 'contract' else None
                 ),
-                prorate_payroll=bool(form.prorate_payroll.data),
+                prorate_payroll=True,
                 bank_name=form.bank_name.data or None,
                 bank_branch=form.bank_branch.data or None,
                 bank_account_number=form.bank_account_number.data or None,
@@ -928,7 +928,7 @@ def edit(id):
             else:
                 emp.contract_start_date = None
                 emp.contract_end_date = None
-            emp.prorate_payroll = bool(form.prorate_payroll.data)
+            emp.prorate_payroll = True
             emp.bank_name = form.bank_name.data or None
             emp.bank_branch = form.bank_branch.data or None
             emp.bank_account_number = form.bank_account_number.data or None

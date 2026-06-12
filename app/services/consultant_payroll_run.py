@@ -84,12 +84,8 @@ def _pro_rata_for_consultant(consultant: Consultant, comp: ConsultantCompensatio
     end = consultant.end_date
     if comp.effective_to and (not end or comp.effective_to < end):
         end = comp.effective_to
-    if getattr(consultant, 'prorate_payroll', True):
-        factor = pro_rata_factor(start, end, run.pay_month, run.pay_year)
-        cal_days = pro_rata_calendar_days_or_none(start, end, run.pay_month, run.pay_year)
-    else:
-        factor = Decimal('1')
-        cal_days = None
+    factor = pro_rata_factor(start, end, run.pay_month, run.pay_year)
+    cal_days = pro_rata_calendar_days_or_none(start, end, run.pay_month, run.pay_year)
     return factor, cal_days
 
 

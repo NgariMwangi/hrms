@@ -127,8 +127,8 @@ def build_gross_earnings(
     if allowance_breakdown:
         earnings_breakdown = [_earnings_line('BASIC', 'Basic Salary', basic, is_taxable=True)]
         for a in allowance_breakdown:
-            should_prorate_line = a.get('prorate', True)
             base_amt = decimalize(a.get('amount', 0))
+            should_prorate_line = a.get('prorate', True)
             amt = prorate_monthly(base_amt) if should_prorate_line else base_amt
             is_taxable = bool(a.get('is_taxable', True))
             if is_taxable:

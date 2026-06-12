@@ -58,13 +58,6 @@
         <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract Start Date *</label><input type="date" name="contract_start_date" class="form-control" value="{{ (form.contract_start_date.data or employee.contract_start_date).strftime('%Y-%m-%d') if (form.contract_start_date.data or employee.contract_start_date) else '' }}"></div>
         <div class="col-md-4 contract-fields d-none"><label class="form-label">Contract End Date</label><input type="date" name="contract_end_date" class="form-control" value="{{ (form.contract_end_date.data or employee.contract_end_date).strftime('%Y-%m-%d') if (form.contract_end_date.data or employee.contract_end_date) else '' }}"></div>
         <div class="col-md-4">{{ form.status.label(class='form-label') }}{{ form.status(class='form-select') }}</div>
-        <div class="col-md-6">
-            <div class="form-check mt-2">
-                {{ form.prorate_payroll(class='form-check-input', id='prorate_payroll') }}
-                <label class="form-check-label" for="prorate_payroll">Prorate payroll for partial months</label>
-            </div>
-            <div class="form-text">If unchecked, this employee gets full-month salary even when joining/leaving mid-month.</div>
-        </div>
         <div class="col-12">
             <label class="form-label">Note for assignment history <span class="text-muted fw-normal">(optional)</span></label>
             <textarea name="assignment_change_reason" class="form-control" rows="2" maxlength="500" placeholder="If you change branch, department, job title, manager, status or employment type, add a short reason (e.g. promotion, transfer). Shown on Career history."></textarea>

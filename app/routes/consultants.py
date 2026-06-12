@@ -121,7 +121,7 @@ def create():
             start_date=form.start_date.data,
             end_date=form.end_date.data,
             withholding_rate=form.withholding_rate.data,
-            prorate_payroll=bool(form.prorate_payroll.data),
+            prorate_payroll=True,
             notes=(form.notes.data or '').strip() or None,
         )
         db.session.add(c)
@@ -187,7 +187,7 @@ def edit(id):
         c.start_date = form.start_date.data
         c.end_date = form.end_date.data
         c.withholding_rate = form.withholding_rate.data
-        c.prorate_payroll = bool(form.prorate_payroll.data)
+        c.prorate_payroll = True
         c.notes = (form.notes.data or '').strip() or None
         db.session.commit()
         flash('Consultant updated.', 'success')

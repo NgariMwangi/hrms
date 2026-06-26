@@ -37,6 +37,7 @@ def main() -> None:
     )
     from app.routes.payroll import _cc  # noqa: PLC0415 — small helper
     from app.services.deduction_service import get_manual_deduction_line_items_for_run
+    from app.services.payroll_common import build_allowance_breakdown
     from app.services.payroll_engine import (
         calculate_employee_payroll,
         pro_rata_calendar_days_or_none,
@@ -109,8 +110,8 @@ def main() -> None:
             db.session.query(EmployeeAllowance)
             .filter(
                 EmployeeAllowance.employee_id == emp.id,
-                EmployeeAllowance.effective_from <= pay_date,
-                (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= pay_date),
+                EmployeeAllowance.effective_from <= period_end,
+                (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= period_start),
             )
             .all()
         )
@@ -199,102 +200,21 @@ def main() -> None:
             "overtime_request_ids": [r.id for r in ot_rows],
         }
 
-        if emp_allowances or emp_benefits:
-            allowance_breakdown = []
-            if emp_allowances:
-                allowance_breakdown.extend(
-                    [
-                        {
-                            "amount": ea.amount,
-                            "is_taxable": ea.allowance.is_taxable,
-                            "is_pensionable": ea.allowance.is_pensionable,
-                            "prorate": True,
-                            "code": ea.allowance.code,
-                            "name": ea.allowance.name,
-                        }
-                        for ea in emp_allowances
-                    ]
-                )
-            else:
-                allowance_breakdown.extend(
-                    [
-                        {
-                            "amount": salary.house_allowance,
-                            "is_taxable": True,
-                            "is_pensionable": True,
-                            "prorate": True,
-                            "code": "HOUSE",
-                            "name": "House Allowance",
-                        },
-                        {
-                            "amount": salary.transport_allowance,
-                            "is_taxable": True,
-                            "is_pensionable": False,
-                            "prorate": True,
-                            "code": "TRANSPORT",
-                            "name": "Transport Allowance",
-                        },
-                        {
-                            "amount": salary.meal_allowance,
-                            "is_taxable": True,
-                            "is_pensionable": False,
-                            "prorate": True,
-                            "code": "MEAL",
-                            "name": "Meal Allowance",
-                        },
-                        {
-                            "amount": salary.other_allowances,
-                            "is_taxable": True,
-                            "is_pensionable": False,
-                            "prorate": True,
-                            "code": "OTHER_ALLOW",
-                            "name": "Other Allowances",
-                        },
-                    ]
-                )
-            allowance_breakdown.extend(
-                {
-                    "amount": b.amount,
-                    "is_taxable": bool(getattr(b, "is_taxable", True)),
-                    "is_pensionable": bool(getattr(b, "is_pensionable", True)),
-                    "prorate": False,
-                    "code": f"BEN-{b.id}",
-                    "name": b.title or "Benefit",
-                }
-                for b in emp_benefits
-            )
-            calc = calculate_employee_payroll(
-                basic_salary=salary.basic_salary,
-                pension_employee_percent=salary.pension_employee_percent,
-                pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
-                pay_date=pay_date,
-                pro_rata_factor=factor,
-                pro_rata_calendar_days=cal_days,
-                allowance_breakdown=allowance_breakdown,
-                employee_id=emp.id,
-                manual_deduction_lines=manual_lines,
-                statutory_company_id=emp.company_id,
-                statutory_country_code=run_cc,
-                overtime_days=overtime_days,
-            )
-        else:
-            calc = calculate_employee_payroll(
-                basic_salary=salary.basic_salary,
-                house_allowance=salary.house_allowance,
-                transport_allowance=salary.transport_allowance,
-                meal_allowance=salary.meal_allowance,
-                other_allowances=salary.other_allowances,
-                pension_employee_percent=salary.pension_employee_percent,
-                pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
-                pay_date=pay_date,
-                pro_rata_factor=factor,
-                pro_rata_calendar_days=cal_days,
-                employee_id=emp.id,
-                manual_deduction_lines=manual_lines,
-                statutory_company_id=emp.company_id,
-                statutory_country_code=run_cc,
-                overtime_days=overtime_days,
-            )
+        allowance_breakdown = build_allowance_breakdown(salary, emp_allowances, emp_benefits)
+        calc = calculate_employee_payroll(
+            basic_salary=salary.basic_salary,
+            pension_employee_percent=salary.pension_employee_percent,
+            pension_employee_fixed_amount=salary.pension_employee_fixed_amount,
+            pay_date=pay_date,
+            pro_rata_factor=factor,
+            pro_rata_calendar_days=cal_days,
+            allowance_breakdown=allowance_breakdown or None,
+            employee_id=emp.id,
+            manual_deduction_lines=manual_lines,
+            statutory_company_id=emp.company_id,
+            statutory_country_code=run_cc,
+            overtime_days=overtime_days,
+        )
 
         gross = calc["gross_pay"]
         print("=== inputs (sources, not payroll_items) ===")

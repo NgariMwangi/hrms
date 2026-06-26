@@ -1316,7 +1316,11 @@ def welfare_bulk():
 
 
 def _benefit_form_bool(field_name: str, *, default: bool = True) -> bool:
-    return request.form.get(field_name, '1' if default else '0') in {'1', 'true', 'on', 'yes'}
+    """Read a checkbox that may be paired with a hidden ``0`` field (both same name)."""
+    values = request.form.getlist(field_name)
+    if not values:
+        return default
+    return any(str(v).lower() in {'1', 'true', 'on', 'yes'} for v in values)
 
 
 @employees_bp.route('/<int:id>/benefits', methods=['GET', 'POST'])

@@ -24,6 +24,7 @@ from app.services.payroll_engine import (
     pro_rata_calendar_days_or_none,
     pro_rata_factor,
 )
+from app.services.payroll_common import build_allowance_breakdown
 from app.services.deduction_service import get_manual_deduction_line_items_for_run
 from app.models.consultant import Consultant, ConsultantPayrollItem
 from app.services.consultant_payroll_run import (
@@ -49,6 +50,19 @@ from sqlalchemy import extract
 from sqlalchemy.orm import joinedload
 
 payroll_bp = Blueprint('payroll', __name__)
+
+
+def _employee_allowances_for_period(employee_id: int, period_start: date, period_end: date) -> list:
+    return (
+        db.session.query(EmployeeAllowance)
+        .options(joinedload(EmployeeAllowance.allowance))
+        .filter(
+            EmployeeAllowance.employee_id == employee_id,
+            EmployeeAllowance.effective_from <= period_end,
+            (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= period_start),
+        )
+        .all()
+    )
 
 
 def _july_gross_for_uganda_lst(
@@ -340,11 +354,7 @@ def run_calculate(id):
             hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year
         )
 
-        emp_allowances = db.session.query(EmployeeAllowance).filter(
-            EmployeeAllowance.employee_id == emp.id,
-            EmployeeAllowance.effective_from <= pay_date,
-            (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= pay_date),
-        ).all()
+        emp_allowances = _employee_allowances_for_period(emp.id, period_start, period_end)
         emp_benefits = db.session.query(EmployeeBenefit).filter(
             EmployeeBenefit.employee_id == emp.id,
             EmployeeBenefit.is_active.is_(True),
@@ -386,72 +396,22 @@ def run_calculate(id):
         if not salary and not emp_benefits:
             return False, 'Employee has no salary or benefits for this period.', None
 
-        if emp_allowances or emp_benefits:
-            allowance_breakdown = []
-            if emp_allowances:
-                allowance_breakdown.extend([
-                    {
-                        'amount': ea.amount,
-                        'is_taxable': ea.allowance.is_taxable,
-                        'is_pensionable': ea.allowance.is_pensionable,
-                        'prorate': True,
-                        'code': ea.allowance.code,
-                        'name': ea.allowance.name,
-                    }
-                    for ea in emp_allowances
-                ])
-            elif salary:
-                allowance_breakdown.extend([
-                    {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'prorate': True, 'code': 'HOUSE', 'name': 'House Allowance'},
-                    {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
-                    {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'MEAL', 'name': 'Meal Allowance'},
-                    {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
-                ])
-            allowance_breakdown.extend(
-                {
-                    'amount': b.amount,
-                    'is_taxable': bool(getattr(b, 'is_taxable', True)),
-                    'is_pensionable': bool(getattr(b, 'is_pensionable', True)),
-                    'prorate': False,
-                    'code': f'BEN-{b.id}',
-                    'name': b.title or 'Benefit',
-                }
-                for b in emp_benefits
-            )
-            calc = calculate_employee_payroll(
-                basic_salary=basic,
-                pension_employee_percent=pension_pct,
-                pension_employee_fixed_amount=pension_fixed,
-                pay_date=pay_date,
-                pro_rata_factor=factor,
-                pro_rata_calendar_days=cal_days,
-                allowance_breakdown=allowance_breakdown,
-                employee_id=emp.id,
-                manual_deduction_lines=manual_lines,
-                statutory_company_id=emp.company_id,
-                statutory_country_code=run_cc,
-                overtime_days=overtime_days,
-                **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
-            )
-        else:
-            calc = calculate_employee_payroll(
-                basic_salary=basic,
-                house_allowance=salary.house_allowance if salary else 0,
-                transport_allowance=salary.transport_allowance if salary else 0,
-                meal_allowance=salary.meal_allowance if salary else 0,
-                other_allowances=salary.other_allowances if salary else 0,
-                pension_employee_percent=pension_pct,
-                pension_employee_fixed_amount=pension_fixed,
-                pay_date=pay_date,
-                pro_rata_factor=factor,
-                pro_rata_calendar_days=cal_days,
-                employee_id=emp.id,
-                manual_deduction_lines=manual_lines,
-                statutory_company_id=emp.company_id,
-                statutory_country_code=run_cc,
-                overtime_days=overtime_days,
-                **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
-            )
+        allowance_breakdown = build_allowance_breakdown(salary, emp_allowances, emp_benefits)
+        calc = calculate_employee_payroll(
+            basic_salary=basic,
+            pension_employee_percent=pension_pct,
+            pension_employee_fixed_amount=pension_fixed,
+            pay_date=pay_date,
+            pro_rata_factor=factor,
+            pro_rata_calendar_days=cal_days,
+            allowance_breakdown=allowance_breakdown or None,
+            employee_id=emp.id,
+            manual_deduction_lines=manual_lines,
+            statutory_company_id=emp.company_id,
+            statutory_country_code=run_cc,
+            overtime_days=overtime_days,
+            **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
+        )
         for ot_r in ot_rows:
             ot_r.applied_to_payroll_run_id = run_obj.id
         db.session.add(
@@ -559,12 +519,7 @@ def run_calculate(id):
             cal_days = pro_rata_calendar_days_or_none(
                 hire_or_start, end_or_termination, run_obj.pay_month, run_obj.pay_year
             )
-            # Use EmployeeAllowance table if any assignments exist for this pay date
-            emp_allowances = db.session.query(EmployeeAllowance).filter(
-                EmployeeAllowance.employee_id == emp.id,
-                EmployeeAllowance.effective_from <= pay_date,
-                (EmployeeAllowance.effective_to.is_(None)) | (EmployeeAllowance.effective_to >= pay_date),
-            ).all()
+            emp_allowances = _employee_allowances_for_period(emp.id, period_start, period_end)
             emp_benefits = db.session.query(EmployeeBenefit).filter(
                 EmployeeBenefit.employee_id == emp.id,
                 EmployeeBenefit.is_active.is_(True),
@@ -612,72 +567,22 @@ def run_calculate(id):
             if not salary and not emp_benefits:
                 continue
 
-            if emp_allowances or emp_benefits:
-                allowance_breakdown = []
-                if emp_allowances:
-                    allowance_breakdown.extend([
-                    {
-                        'amount': ea.amount,
-                        'is_taxable': ea.allowance.is_taxable,
-                        'is_pensionable': ea.allowance.is_pensionable,
-                        'prorate': True,
-                        'code': ea.allowance.code,
-                        'name': ea.allowance.name,
-                    }
-                    for ea in emp_allowances
-                    ])
-                elif salary:
-                    allowance_breakdown.extend([
-                        {'amount': salary.house_allowance, 'is_taxable': True, 'is_pensionable': True, 'prorate': True, 'code': 'HOUSE', 'name': 'House Allowance'},
-                        {'amount': salary.transport_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'TRANSPORT', 'name': 'Transport Allowance'},
-                        {'amount': salary.meal_allowance, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'MEAL', 'name': 'Meal Allowance'},
-                        {'amount': salary.other_allowances, 'is_taxable': True, 'is_pensionable': False, 'prorate': True, 'code': 'OTHER_ALLOW', 'name': 'Other Allowances'},
-                    ])
-                allowance_breakdown.extend(
-                    {
-                        'amount': b.amount,
-                        'is_taxable': bool(getattr(b, 'is_taxable', True)),
-                        'is_pensionable': bool(getattr(b, 'is_pensionable', True)),
-                        'prorate': False,
-                        'code': f'BEN-{b.id}',
-                        'name': b.title or 'Benefit',
-                    }
-                    for b in emp_benefits
-                )
-                calc = calculate_employee_payroll(
-                    basic_salary=basic,
-                    pension_employee_percent=pension_pct,
-                    pension_employee_fixed_amount=pension_fixed,
-                    pay_date=pay_date,
-                    pro_rata_factor=factor,
-                    pro_rata_calendar_days=cal_days,
-                    allowance_breakdown=allowance_breakdown,
-                    employee_id=emp.id,
-                    manual_deduction_lines=manual_lines,
-                    statutory_company_id=emp.company_id,
-                    statutory_country_code=run_cc,
-                    overtime_days=overtime_days,
-                    **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
-                )
-            else:
-                calc = calculate_employee_payroll(
-                    basic_salary=basic,
-                    house_allowance=salary.house_allowance if salary else 0,
-                    transport_allowance=salary.transport_allowance if salary else 0,
-                    meal_allowance=salary.meal_allowance if salary else 0,
-                    other_allowances=salary.other_allowances if salary else 0,
-                    pension_employee_percent=pension_pct,
-                    pension_employee_fixed_amount=pension_fixed,
-                    pay_date=pay_date,
-                    pro_rata_factor=factor,
-                    pro_rata_calendar_days=cal_days,
-                    employee_id=emp.id,
-                    manual_deduction_lines=manual_lines,
-                    statutory_company_id=emp.company_id,
-                    statutory_country_code=run_cc,
-                    overtime_days=overtime_days,
-                    **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
-                )
+            allowance_breakdown = build_allowance_breakdown(salary, emp_allowances, emp_benefits)
+            calc = calculate_employee_payroll(
+                basic_salary=basic,
+                pension_employee_percent=pension_pct,
+                pension_employee_fixed_amount=pension_fixed,
+                pay_date=pay_date,
+                pro_rata_factor=factor,
+                pro_rata_calendar_days=cal_days,
+                allowance_breakdown=allowance_breakdown or None,
+                employee_id=emp.id,
+                manual_deduction_lines=manual_lines,
+                statutory_company_id=emp.company_id,
+                statutory_country_code=run_cc,
+                overtime_days=overtime_days,
+                **_payroll_calc_kwargs(run_obj, run_cc, emp.id),
+            )
             for ot_r in ot_rows:
                 ot_r.applied_to_payroll_run_id = run_obj.id
             item = PayrollItem(

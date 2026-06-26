@@ -96,6 +96,72 @@ def pro_rata_factor(
     return Decimal(days_worked) / denom
 
 
+SALARY_ALLOWANCE_SPECS = (
+    ('house_allowance', True, True, 'HOUSE', 'House Allowance'),
+    ('transport_allowance', True, False, 'TRANSPORT', 'Transport Allowance'),
+    ('meal_allowance', True, False, 'MEAL', 'Meal Allowance'),
+    ('other_allowances', True, False, 'OTHER_ALLOW', 'Other Allowances'),
+)
+
+
+def normalize_allowance_code(code: str | None, fallback: str) -> str:
+    normalized = (code or '').strip().upper()
+    return normalized or fallback
+
+
+def salary_field_allowance_lines(salary, *, exclude_codes: set[str] | None = None) -> list[dict]:
+    if not salary:
+        return []
+    exclude_codes = exclude_codes or set()
+    lines = []
+    for attr, is_taxable, is_pensionable, code, name in SALARY_ALLOWANCE_SPECS:
+        if code in exclude_codes:
+            continue
+        amount = getattr(salary, attr, 0) or 0
+        if decimalize(amount) == 0:
+            continue
+        lines.append({
+            'amount': amount,
+            'is_taxable': is_taxable,
+            'is_pensionable': is_pensionable,
+            'prorate': False,
+            'code': code,
+            'name': name,
+        })
+    return lines
+
+
+def build_allowance_breakdown(salary, emp_allowances, emp_benefits) -> list[dict]:
+    """Catalog allowances plus salary-record fields not already assigned in catalog."""
+    breakdown = []
+    catalog_codes: set[str] = set()
+    for ea in emp_allowances:
+        allowance = getattr(ea, 'allowance', None)
+        if not allowance:
+            continue
+        code = normalize_allowance_code(allowance.code, f'ALLOW-{ea.id}')
+        catalog_codes.add(code)
+        breakdown.append({
+            'amount': ea.amount,
+            'is_taxable': allowance.is_taxable,
+            'is_pensionable': allowance.is_pensionable,
+            'prorate': False,
+            'code': allowance.code or code,
+            'name': allowance.name,
+        })
+    breakdown.extend(salary_field_allowance_lines(salary, exclude_codes=catalog_codes))
+    for b in emp_benefits:
+        breakdown.append({
+            'amount': b.amount,
+            'is_taxable': bool(getattr(b, 'is_taxable', True)),
+            'is_pensionable': bool(getattr(b, 'is_pensionable', True)),
+            'prorate': False,
+            'code': f'BEN-{b.id}',
+            'name': b.title or 'Benefit',
+        })
+    return breakdown
+
+
 def _earnings_line(code: str, name: str, amount: Decimal, *, is_taxable: bool) -> dict:
     return {
         'code': code,
@@ -147,7 +213,8 @@ def build_gross_earnings(
             base_amt = decimalize(a.get('amount', 0))
             should_prorate_line = bool(a.get('prorate', False))
             amt = prorate_monthly(base_amt) if should_prorate_line else base_amt
-            if should_prorate_line:
+            code = (a.get('code') or '').upper()
+            if not code.startswith('BEN-'):
                 overtime_rate_base += base_amt
             is_taxable = bool(a.get('is_taxable', True))
             if is_taxable:
@@ -175,10 +242,10 @@ def build_gross_earnings(
         transport_full = decimalize(transport_allowance)
         meal_full = decimalize(meal_allowance)
         other_allow_full = decimalize(other_allowances)
-        house = prorate_monthly(house_full)
-        transport = prorate_monthly(transport_full)
-        meal = prorate_monthly(meal_full)
-        other_allow = prorate_monthly(other_allow_full)
+        house = house_full
+        transport = transport_full
+        meal = meal_full
+        other_allow = other_allow_full
         taxable_total = (basic + house + transport + meal + other_allow + other_earn).quantize(
             Decimal('0.01')
         )

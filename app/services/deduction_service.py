@@ -1,6 +1,7 @@
 """
 Recurring employee deductions and per-payroll manual deduction lines.
 """
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 
@@ -14,14 +15,36 @@ def decimalize(value) -> Decimal:
     return Decimal(str(value))
 
 
+def pay_period_bounds(pay_date: date) -> tuple[date, date]:
+    """First and last calendar day of the payroll month containing pay_date."""
+    _, last_day = monthrange(pay_date.year, pay_date.month)
+    period_start = date(pay_date.year, pay_date.month, 1)
+    period_end = date(pay_date.year, pay_date.month, last_day)
+    return period_start, period_end
+
+
+def deduction_overlaps_pay_period(
+    effective_from: date,
+    effective_to: date | None,
+    period_start: date,
+    period_end: date,
+) -> bool:
+    if effective_from > period_end:
+        return False
+    if effective_to is not None and effective_to < period_start:
+        return False
+    return True
+
+
 def _active_employee_deductions(employee_id: int, pay_date: date):
+    period_start, period_end = pay_period_bounds(pay_date)
     return (
         db.session.query(EmployeeDeduction)
         .filter(
             EmployeeDeduction.employee_id == employee_id,
             EmployeeDeduction.is_active.is_(True),
-            EmployeeDeduction.effective_from <= pay_date,
-            (EmployeeDeduction.effective_to.is_(None)) | (EmployeeDeduction.effective_to >= pay_date),
+            EmployeeDeduction.effective_from <= period_end,
+            (EmployeeDeduction.effective_to.is_(None)) | (EmployeeDeduction.effective_to >= period_start),
         )
         .order_by(EmployeeDeduction.id)
         .all()

@@ -21,6 +21,10 @@ class UserForm(FlaskForm):
     )
     is_active = BooleanField("Active", default=True)
     is_superuser = BooleanField("Superuser (all permissions)", default=False)
+    must_change_password = BooleanField(
+        "Require password change on next login",
+        default=False,
+    )
     employee_id = SelectField("Linked Employee", coerce=int, validators=[Optional()])
     role_ids = SelectMultipleField("Roles", coerce=int, validators=[Optional()])
     submit = SubmitField("Save")

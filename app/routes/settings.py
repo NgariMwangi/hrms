@@ -1,16 +1,19 @@
 """System configuration, user management, and audit log viewer."""
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 from app.extensions import db
 from app.models.audit import AuditLog
 from app.models.user import User, Role, UserRole
 from app.models.employee import Employee
+from app.models.department import Department
 from app.models.employer import Employer
 from app.models.company import Company, Branch
 from app.forms.user_forms import UserForm
 from app.forms.settings_forms import EmployerForm, CreateOrganizationForm
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
+from app.services.password_reset_service import send_password_reset_email
 from app.services.company_bootstrap import bootstrap_company_defaults
 
 settings_bp = Blueprint('settings', __name__)
@@ -28,8 +31,54 @@ def index():
 @permission_required('manage_settings')
 def users():
     cid = require_company_id()
-    users_q = db.session.query(User).filter(User.company_id == cid).order_by(User.email).all()
-    return render_template('settings/users.html', users=users_q)
+    search = (request.args.get('q') or '').strip()
+
+    q = (
+        db.session.query(User)
+        .options(
+            joinedload(User.employee).joinedload(Employee.department),
+            joinedload(User.employee).joinedload(Employee.branch),
+        )
+        .filter(User.company_id == cid)
+    )
+    if search:
+        like = f'%{search}%'
+        employee_name = (
+            db.func.coalesce(Employee.first_name, '')
+            + ' '
+            + db.func.coalesce(Employee.middle_name, '')
+            + ' '
+            + db.func.coalesce(Employee.last_name, '')
+        )
+        linked_employee_ids = (
+            db.session.query(Employee.id)
+            .outerjoin(Department, Employee.department_id == Department.id)
+            .outerjoin(Branch, Employee.branch_id == Branch.id)
+            .filter(
+                Employee.company_id == cid,
+                db.or_(
+                    Employee.first_name.ilike(like),
+                    Employee.middle_name.ilike(like),
+                    Employee.last_name.ilike(like),
+                    employee_name.ilike(like),
+                    Employee.employee_number.ilike(like),
+                    Department.name.ilike(like),
+                    Branch.name.ilike(like),
+                ),
+            )
+        )
+        search_filters = [
+            User.email.ilike(like),
+            User.employee_id.in_(linked_employee_ids),
+        ]
+        if search.isdigit():
+            num = int(search)
+            search_filters.append(User.id == num)
+            search_filters.append(User.employee_id == num)
+        q = q.filter(db.or_(*search_filters))
+
+    users_q = q.order_by(User.email).all()
+    return render_template('settings/users.html', users=users_q, search=search)
 
 
 def _populate_user_form_choices(form: UserForm, company_id: int):
@@ -127,6 +176,9 @@ def user_edit(user_id):
                 flash(f"Password must be at least {current_app.config.get('PASSWORD_MIN_LENGTH', 8)} characters.", 'danger')
                 return render_template('settings/user_form.html', form=form, user=user)
             user.set_password(form.password.data)
+            user.must_change_password = form.must_change_password.data
+        elif form.must_change_password.data != user.must_change_password:
+            user.must_change_password = form.must_change_password.data
         # Update roles
         selected_role_ids = set(form.role_ids.data or [])
         # Remove roles not selected
@@ -145,9 +197,37 @@ def user_edit(user_id):
         form.email.data = user.email
         form.is_active.data = user.is_active
         form.is_superuser.data = user.is_superuser
+        form.must_change_password.data = user.must_change_password
         form.employee_id.data = user.employee_id or 0
         form.role_ids.data = [r.id for r in user.roles]
     return render_template('settings/user_form.html', form=form, user=user)
+
+
+@settings_bp.route('/users/<int:user_id>/send-password-reset', methods=['POST'])
+@login_required
+@permission_required('manage_settings')
+def user_send_password_reset(user_id):
+    from flask import current_app
+
+    cid = require_company_id()
+    user = db.session.get(User, user_id)
+    if not user or user.company_id != cid:
+        flash('User not found.', 'danger')
+        return redirect(url_for('settings.users'))
+    if not user.is_active:
+        flash('Cannot send a reset link to an inactive user.', 'warning')
+        return redirect(url_for('settings.user_edit', user_id=user.id))
+    sent = send_password_reset_email(user)
+    if sent:
+        flash(f'Password reset link sent to {user.email}.', 'success')
+    elif current_app.debug:
+        flash(
+            'Email is not configured; check server logs for the reset link (debug mode).',
+            'warning',
+        )
+    else:
+        flash('Could not send reset email. Check email (Brevo) configuration.', 'danger')
+    return redirect(url_for('settings.user_edit', user_id=user.id))
 
 
 @settings_bp.route('/users/<int:user_id>/toggle-active', methods=['POST'])

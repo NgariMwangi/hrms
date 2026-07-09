@@ -11,17 +11,35 @@
                     {{ form.email.label(class='form-label') }}
                     {{ form.email(class='form-control') }}
                 </div>
+                {% if user %}
+                <div class="col-12">
+                    <div class="alert alert-info mb-0">
+                        <strong>Current password cannot be displayed.</strong>
+                        Passwords are stored as a one-way hash for security, so the original text is not kept and cannot be retrieved — not even by administrators.
+                        To change access, set a new password below or send a reset link to the user.
+                    </div>
+                </div>
+                {% endif %}
                 <div class="col-md-6">
                     {{ form.password.label(class='form-label') }}
-                    {{ form.password(class='form-control') }}
+                    {{ form.password(class='form-control', autocomplete='new-password') }}
                     <div class="form-text">
                         {% if user %}
-                            Leave blank to keep the current password.
+                            Enter a new password only if you want to replace the current one. Leave blank to keep it unchanged.
                         {% else %}
                             Required; at least 8 characters.
                         {% endif %}
                     </div>
                 </div>
+                {% if user %}
+                <div class="col-md-6">
+                    <div class="form-check mt-4">
+                        {{ form.must_change_password(class='form-check-input') }}
+                        {{ form.must_change_password.label(class='form-check-label') }}
+                    </div>
+                    <div class="form-text">Applies when you set a new password above, or toggle on its own to force a change on next login.</div>
+                </div>
+                {% endif %}
                 <div class="col-md-4">
                     <div class="form-check mt-4">
                         {{ form.is_active(class='form-check-input') }}
@@ -48,7 +66,17 @@
                 </div>
             </div>
         </form>
+        {% if user %}
+        <hr class="my-4">
+        <h2 class="h6 mb-2">Password reset email</h2>
+        <p class="text-muted small mb-2">
+            Send {{ user.email }} a secure link to choose their own new password (expires after about one hour).
+        </p>
+        <form method="post" action="{{ url_for('settings.user_send_password_reset', user_id=user.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn btn-outline-primary btn-sm">Send password reset link</button>
+        </form>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
-

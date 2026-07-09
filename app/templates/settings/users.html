@@ -7,7 +7,28 @@
     <a href="{{ url_for('settings.user_create') }}" class="btn btn-primary btn-sm">
         <i class="bi bi-person-plus me-1"></i>New User
     </a>
+</div>
+
+<form method="get" class="row g-2 mb-3">
+    <div class="col-md-6">
+        <input
+            type="search"
+            name="q"
+            class="form-control"
+            value="{{ search }}"
+            placeholder="Search by employee name, ID, department, branch, or email"
+        >
     </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-outline-primary">Search</button>
+    </div>
+    {% if search %}
+    <div class="col-auto">
+        <a href="{{ url_for('settings.users') }}" class="btn btn-outline-secondary">Clear</a>
+    </div>
+    {% endif %}
+</form>
+
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
@@ -65,7 +86,7 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6" class="text-muted text-center py-3">No users found.</td></tr>
+                    <tr><td colspan="6" class="text-muted text-center py-3">{% if search %}No users match your search.{% else %}No users found.{% endif %}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

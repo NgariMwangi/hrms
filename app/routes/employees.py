@@ -21,6 +21,11 @@ from app.forms.employee_forms import EmployeeForm, EmployeeSalaryForm, EmployeeS
 from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
 from app.utils.currency import currency_for_branch
+from app.services.employee_account_service import (
+    normalize_login_email,
+    sync_employee_email_from_user,
+    sync_user_email_from_employee,
+)
 from app.services.audit_service import log_create, log_update, model_to_audit_dict
 from app.services.employee_history_service import (
     assignment_snapshot,
@@ -642,6 +647,13 @@ def _save_employee_self_contact(emp: Employee, user: User, form: EmployeeSelfCon
         if form.emergency_contact_phone.data
         else None
     )
+    sync_err = sync_user_email_from_employee(emp, user)
+    if sync_err:
+        db.session.rollback()
+        flash(sync_err, 'danger')
+        return False
+    if not normalize_login_email(emp.email):
+        sync_employee_email_from_user(user)
     try:
         db.session.commit()
         log_update(
@@ -900,8 +912,12 @@ def edit(id):
             emp.kra_pin = form.kra_pin.data or None
             emp.nssf_number = form.nssf_number.data or None
             emp.nhif_number = form.nhif_number.data or None
-            emp.email = form.email.data or None
+            emp.email = (form.email.data or '').strip() or None
             emp.secondary_email = form.secondary_email.data or None
+            sync_err = sync_user_email_from_employee(emp)
+            if sync_err:
+                flash(sync_err, 'danger')
+                return render_template('employees/edit.html', form=form, employee=emp)
             emp.phone = normalize_phone(form.phone.data, branch.country_code) if form.phone.data else None
             emp.secondary_phone = normalize_phone(form.secondary_phone.data, branch.country_code) if form.secondary_phone.data else None
             emp.phone_alt = normalize_phone(form.secondary_phone.data, branch.country_code) if form.secondary_phone.data else None
@@ -1486,6 +1502,7 @@ def link_user(id):
         user.set_password(password)
         db.session.add(user)
         db.session.flush()
+        emp.email = email
         if role_id:
             role = db.session.get(Role, role_id)
             if role:

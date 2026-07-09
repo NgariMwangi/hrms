@@ -16,6 +16,49 @@ def _email_taken(email: str, *, exclude_user_id: int | None = None) -> bool:
     return q.first() is not None
 
 
+def normalize_login_email(value: str | None) -> str | None:
+    if not value:
+        return None
+    email = value.strip().lower()
+    return email if '@' in email else None
+
+
+def linked_user_for_employee(employee: Employee) -> User | None:
+    if getattr(employee, 'user', None):
+        return employee.user
+    return db.session.query(User).filter_by(employee_id=employee.id).first()
+
+
+def sync_user_email_from_employee(employee: Employee, user: User | None = None) -> str | None:
+    """Copy employee work email to the linked user login email."""
+    user = user or linked_user_for_employee(employee)
+    if not user:
+        return None
+
+    emp_email = normalize_login_email(employee.email)
+    if not emp_email:
+        return None
+    if user.email == emp_email:
+        return None
+    if _email_taken(emp_email, exclude_user_id=user.id):
+        return f'Email {emp_email} is already used by another login account.'
+    user.email = emp_email
+    return None
+
+
+def sync_employee_email_from_user(user: User) -> None:
+    """Copy user login email to the linked employee work email."""
+    if not user.employee_id:
+        return
+    login_email = normalize_login_email(user.email)
+    if not login_email:
+        return
+    emp = db.session.get(Employee, user.employee_id)
+    if not emp:
+        return
+    emp.email = login_email
+
+
 def _sanitize_local_part(value: str) -> str:
     s = (value or '').strip().lower()
     s = re.sub(r'[^a-z0-9._-]+', '', s.replace(' ', '.'))

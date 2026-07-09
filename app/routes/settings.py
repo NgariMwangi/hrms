@@ -15,6 +15,10 @@ from app.decorators.permissions import permission_required
 from app.utils.tenant import require_company_id
 from app.services.password_reset_service import send_password_reset_email
 from app.services.company_bootstrap import bootstrap_company_defaults
+from app.services.employee_account_service import (
+    sync_employee_email_from_user,
+    sync_user_email_from_employee,
+)
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -136,6 +140,8 @@ def user_create():
             role = db.session.get(Role, rid)
             if role:
                 db.session.add(UserRole(user_id=user.id, role_id=role.id))
+        if user.employee_id:
+            sync_employee_email_from_user(user)
         db.session.commit()
         flash('User created.', 'success')
         return redirect(url_for('settings.users'))
@@ -171,6 +177,8 @@ def user_edit(user_id):
                 flash('Invalid employee selected for this organization.', 'danger')
                 return render_template('settings/user_form.html', form=form, user=user)
         user.employee_id = employee_id or None
+        if user.employee_id:
+            sync_employee_email_from_user(user)
         if form.password.data:
             if len(form.password.data) < current_app.config.get('PASSWORD_MIN_LENGTH', 8):
                 flash(f"Password must be at least {current_app.config.get('PASSWORD_MIN_LENGTH', 8)} characters.", 'danger')

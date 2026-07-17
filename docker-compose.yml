@@ -5,10 +5,12 @@ services:
     restart: unless-stopped
     build: .
     container_name: hrms_kenya
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       FLASK_ENV: production
       SECRET_KEY: jtyjxdnjncdkm
-      DATABASE_URL: postgresql://postgres:deno0707@172.17.0.1:5432/hrms_kenya1
+      DATABASE_URL: postgresql://postgres:deno0707@host.docker.internal:5432/hrms_kenya1
     ports:
       - "5001:5001"
     # Optional: mount app/static to provide logo.jpg without rebuilding
